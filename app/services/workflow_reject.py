@@ -1,0 +1,168 @@
+"""رد مرحله گردش‌کار با بازگشت به مرحله قبل یا درخواست‌کننده."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy.orm import Session
+
+from app.infrastructure.messaging.events import WORKFLOW_REJECTED
+from app.infrastructure.messaging.publisher import publish_event
+from app.models.workflow_instance import WorkflowInstance
+from app.models.workflow_step import WorkflowStep
+from app.services.inbox import mark_inbox_done_for_workflow
+from app.services.workflow_approval_log import record_workflow_decision
+from app.services.workflow_notifications import (
+    notify_workflow_next_step,
+    notify_workflow_rejected,
+)
+from app.services.workflow_step_access import user_can_act_on_workflow_step
+from app.services.workflow_submitter import resolve_submitter_id
+
+RETURN_TO_PREVIOUS = "previous"
+RETURN_TO_REQUESTER = "requester"
+RETURN_TARGETS = frozenset({RETURN_TO_PREVIOUS, RETURN_TO_REQUESTER})
+
+
+def _pending_step(db: Session, instance_id: int) -> WorkflowStep | None:
+    return (
+        db.query(WorkflowStep)
+        .filter_by(instance_id=instance_id, status="pending")
+        .order_by(WorkflowStep.order)
+        .first()
+    )
+
+
+def _sync_business_on_return_to_requester(db: Session, inst: WorkflowInstance) -> None:
+    if not inst.ref_type or not inst.ref_id:
+        return
+    ref_type = str(inst.ref_type)
+    ref_id = int(inst.ref_id)
+
+    if ref_type == "financial_document":
+        from app.services.financial_document import on_workflow_rejected
+
+        on_workflow_rejected(db, ref_id)
+        return
+
+    if ref_type == "petty_cash":
+        from app.services.petty_cash import on_workflow_rejected
+
+        on_workflow_rejected(db, ref_id)
+        return
+
+    if ref_type == "request":
+        from app.constants.procurement import STATUS_PENDING
+        from app.models.request import Request
+
+        req = db.get(Request, ref_id)
+        if req:
+            req.status = STATUS_PENDING
+        return
+
+    if ref_type == "payment_request":
+        from app.models.payment_request import PaymentRequest
+
+        pr = db.get(PaymentRequest, ref_id)
+        if pr:
+            pr.status = "PENDING"
+
+
+def reject_step(
+    db: Session,
+    instance_id: int,
+    user,
+    *,
+    comment: str | None = None,
+    return_to: str = RETURN_TO_REQUESTER,
+) -> WorkflowInstance:
+    target = (return_to or RETURN_TO_REQUESTER).strip().lower()
+    if target not in RETURN_TARGETS:
+        raise ValueError("return_to must be 'previous' or 'requester'")
+    if not comment or not str(comment).strip():
+        raise ValueError("ثبت دلیل رد (کامنت) الزامی است")
+
+    step = _pending_step(db, instance_id)
+    if not step:
+        raise ValueError("no pending step")
+
+    if not user_can_act_on_workflow_step(user, step):
+        raise ValueError("access denied")
+
+    instance = db.get(WorkflowInstance, instance_id)
+    if not instance:
+        raise ValueError("workflow instance not found")
+
+    step.status = "rejected"
+    step.approved_by = user.id
+    step.approved_at = datetime.utcnow()
+    from app.services.sla import close_sla_for_instance, close_sla_for_step
+
+    close_sla_for_step(db, step.id)
+    record_workflow_decision(
+        db,
+        instance_id=instance_id,
+        step_id=step.id,
+        approved_by=user.id,
+        decision="rejected",
+        comment=comment.strip(),
+    )
+    mark_inbox_done_for_workflow(db, instance_id, user_id=user.id)
+
+    if target == RETURN_TO_PREVIOUS:
+        if step.order <= 1:
+            target = RETURN_TO_REQUESTER
+        else:
+            prev = (
+                db.query(WorkflowStep)
+                .filter(
+                    WorkflowStep.instance_id == instance_id,
+                    WorkflowStep.order == step.order - 1,
+                )
+                .first()
+            )
+            if not prev:
+                raise ValueError("مرحله قبلی یافت نشد")
+            prev.status = "pending"
+            prev.approved_by = None
+            prev.approved_at = None
+            instance.status = "in_progress"
+            db.commit()
+            if prev.assigned_user_id:
+                notify_workflow_next_step(
+                    db,
+                    {
+                        "instance_id": instance_id,
+                        "role_id": prev.role_id,
+                        "step_id": prev.id,
+                        "user_id": prev.assigned_user_id,
+                    },
+                )
+                db.commit()
+            return instance
+
+    instance.status = "returned"
+    _sync_business_on_return_to_requester(db, instance)
+    close_sla_for_instance(db, instance_id)
+    db.commit()
+
+    submitter_id = resolve_submitter_id(db, instance)
+    if submitter_id:
+        notify_workflow_rejected(
+            db,
+            instance_id=instance_id,
+            rejected_by_user_id=user.id,
+            comment=comment.strip(),
+        )
+
+    rejected_payload: dict = {
+        "instance_id": instance_id,
+        "user_id": user.id,
+        "return_to": target,
+    }
+    if instance.ref_type:
+        rejected_payload["ref_type"] = instance.ref_type
+        rejected_payload["ref_id"] = instance.ref_id
+    publish_event(WORKFLOW_REJECTED, rejected_payload)
+    db.commit()
+    return instance

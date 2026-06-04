@@ -1,0 +1,14 @@
+"""وضعیت‌های درخواست تنخواه."""
+
+# گردش تأیید
+STATUS_PENDING = "PENDING"
+STATUS_APPROVED = "APPROVED"
+STATUS_REJECTED = "REJECTED"
+
+# تسویه / ثبت جزئیات خرج
+SETTLEMENT_NONE = "NONE"
+SETTLEMENT_PENDING = "PENDING_SETTLEMENT"  # پس از تأیید؛ منتظر ثبت خرج
+SETTLEMENT_SETTLED = "SETTLED"
+
+EXPENSE_SOURCE_MANUAL = "manual"
+EXPENSE_SOURCE_EXCEL = "excel"

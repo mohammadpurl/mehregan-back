@@ -1,0 +1,296 @@
+"""شرایط وام و مساعده — فقط تأییدکننده workflow، نه درخواست‌دهنده."""
+
+from datetime import date
+
+from sqlalchemy.orm import Session
+
+from app.constants.payment_methods import normalize_payment_method
+from app.constants.payment_types import (
+    EMPLOYEE_FINANCIAL_TYPES,
+    PAYMENT_TYPE_ADVANCE,
+    PAYMENT_TYPE_LOAN,
+    PAYMENT_TYPE_PAYMENT_ORDER,
+)
+from app.models.payment_request import PaymentRequest
+from app.models.workflow_instance import WorkflowInstance
+from app.models.workflow_step import WorkflowStep
+from app.services import company_bank_account as cba_svc
+from app.constants.payment_order import WORKFLOW_REF_PAYMENT_ORDER
+from app.services.payment_request_access import workflow_instance_for_payment
+from app.services.workflow_step_access import user_can_act_on_workflow_step as _user_can_act_on_step
+from app.services.workflow_step_kinds import step_is_financial
+
+
+PAYER_PENDING_MARKERS = frozenset(
+    {
+        "-",
+        "0000000000000",
+        "تعیین نشده",
+        "تعیین نشده | 0000000000000",
+    }
+)
+
+
+class ApproverTermsPayload:
+    def __init__(
+        self,
+        *,
+        amount: float | None = None,
+        payment_date: date | None = None,
+        installment_count: int | None = None,
+        first_installment_date: date | None = None,
+        settlement_date: date | None = None,
+        payer_company_account_id: int | None = None,
+        payer_account: str | None = None,
+        payment_method: str | None = None,
+    ):
+        self.amount = amount
+        self.payment_date = payment_date
+        self.installment_count = installment_count
+        self.first_installment_date = first_installment_date
+        self.settlement_date = settlement_date
+        self.payer_company_account_id = payer_company_account_id
+        self.payer_account = payer_account
+        self.payment_method = payment_method
+
+
+def payer_is_unset(payer_account: str | None) -> bool:
+    raw = (payer_account or "").strip()
+    if not raw or raw in PAYER_PENDING_MARKERS:
+        return True
+    if "|" in raw:
+        name, _, num = raw.partition("|")
+        name = name.strip()
+        num = num.strip()
+        if not name or not num:
+            return True
+        if name in PAYER_PENDING_MARKERS or num in PAYER_PENDING_MARKERS:
+            return True
+    return False
+
+
+def payment_terms_complete(pr: PaymentRequest) -> bool:
+    if pr.payment_type == PAYMENT_TYPE_LOAN:
+        return (
+            pr.installment_count is not None
+            and pr.installment_count >= 1
+            and pr.first_installment_date is not None
+        )
+    if pr.payment_type == PAYMENT_TYPE_ADVANCE:
+        return pr.settlement_date is not None
+    if pr.payment_type == PAYMENT_TYPE_PAYMENT_ORDER:
+        return normalize_payment_method(pr.payment_method) is not None
+    return True
+
+
+def financial_terms_satisfied(pr: PaymentRequest) -> bool:
+    if pr.payment_type == PAYMENT_TYPE_PAYMENT_ORDER:
+        return payment_terms_complete(pr) and (
+            not payer_is_unset(pr.payer_account) or pr.payer_company_account_id is not None
+        )
+    return payment_terms_complete(pr) and (
+        not payer_is_unset(pr.payer_account) or pr.payer_company_account_id is not None
+    )
+
+
+def workflow_has_approved_step(db: Session, payment_request_id: int) -> bool:
+    inst = workflow_instance_for_payment(db, payment_request_id)
+    if not inst:
+        return False
+    return (
+        db.query(WorkflowStep)
+        .filter(
+            WorkflowStep.instance_id == inst.id,
+            WorkflowStep.status == "approved",
+        )
+        .count()
+        > 0
+    )
+
+
+def _pending_step(db: Session, instance_id: int) -> WorkflowStep | None:
+    return (
+        db.query(WorkflowStep)
+        .filter_by(instance_id=instance_id, status="pending")
+        .order_by(WorkflowStep.order)
+        .first()
+    )
+
+
+def must_collect_financial_terms(
+    db: Session,
+    inst: WorkflowInstance,
+    pr: PaymentRequest,
+    step: WorkflowStep,
+) -> bool:
+    """فقط مرحلهٔ جاریِ مالی — نه مرحلهٔ مدیر مستقیم."""
+    if financial_terms_satisfied(pr):
+        return False
+    return step_is_financial(db, inst, step)
+
+
+def _apply_payment_order_terms(
+    db: Session,
+    inst: WorkflowInstance,
+    pr: PaymentRequest,
+    step: WorkflowStep,
+    user,
+    terms: ApproverTermsPayload | None,
+) -> None:
+    if not _user_can_act_on_step(user, step):
+        raise ValueError("access denied")
+
+    if terms and terms.payment_method:
+        pr.payment_method = normalize_payment_method(terms.payment_method)
+        if not pr.payment_method:
+            raise ValueError("روش پرداخت باید «چک» یا «حواله» باشد")
+
+    if payer_is_unset(pr.payer_account) and not pr.payer_company_account_id:
+        if terms is None or not terms.payer_company_account_id:
+            if step_is_financial(db, inst, step):
+                raise ValueError(
+                    "برای تأیید دستور پرداخت، حساب بانکی مبدأ (شرکت) را انتخاب کنید"
+                )
+        elif terms.payer_company_account_id:
+            snap, acc_id = cba_svc.resolve_payer_snapshot(
+                db, terms.payer_company_account_id
+            )
+            pr.payer_account = snap
+            pr.payer_company_account_id = acc_id
+
+    if not pr.payment_method:
+        raise ValueError("روش پرداخت (چک یا حواله) را انتخاب کنید")
+
+    db.flush()
+
+
+def _apply_amount_and_payment_date(
+    db: Session,
+    inst: WorkflowInstance,
+    step: WorkflowStep,
+    user,
+    terms: ApproverTermsPayload | None,
+) -> None:
+    if terms is None or (terms.amount is None and terms.payment_date is None):
+        return
+    if not _user_can_act_on_step(user, step):
+        raise ValueError("access denied")
+
+    if inst.ref_type in ("payment_request", WORKFLOW_REF_PAYMENT_ORDER):
+        pr = db.get(PaymentRequest, inst.ref_id)
+        if not pr:
+            return
+        if terms.amount is not None and terms.amount > 0:
+            pr.amount = terms.amount
+        if terms.payment_date is not None:
+            pr.payment_date = terms.payment_date
+        db.flush()
+        return
+
+    if inst.ref_type == "petty_cash":
+        from app.models.petty_cash_request import PettyCashRequest
+
+        row = db.get(PettyCashRequest, inst.ref_id)
+        if not row:
+            return
+        if terms.amount is not None and terms.amount > 0:
+            row.amount = terms.amount
+        if terms.payment_date is not None:
+            row.requested_date = terms.payment_date
+        db.flush()
+        return
+
+    if inst.ref_type == "financial_document":
+        from app.models.financial_document import FinancialDocument
+
+        row = db.get(FinancialDocument, inst.ref_id)
+        if not row:
+            return
+        if terms.amount is not None and terms.amount > 0:
+            row.amount = terms.amount
+        if terms.payment_date is not None:
+            row.document_date = terms.payment_date
+        db.flush()
+
+
+def apply_approver_terms_before_approve(
+    db: Session,
+    instance_id: int,
+    user,
+    terms: ApproverTermsPayload | None,
+) -> None:
+    inst = db.get(WorkflowInstance, instance_id)
+    if not inst:
+        return
+
+    step = _pending_step(db, instance_id)
+    if not step:
+        return
+
+    _apply_amount_and_payment_date(db, inst, step, user, terms)
+
+    if inst.ref_type not in ("payment_request", WORKFLOW_REF_PAYMENT_ORDER):
+        return
+
+    pr = db.get(PaymentRequest, inst.ref_id)
+    if not pr:
+        return
+
+    if pr.payment_type == PAYMENT_TYPE_PAYMENT_ORDER:
+        _apply_payment_order_terms(db, inst, pr, step, user, terms)
+        return
+
+    if pr.payment_type not in EMPLOYEE_FINANCIAL_TYPES:
+        return
+
+    if not must_collect_financial_terms(db, inst, pr, step):
+        return
+
+    if payer_is_unset(pr.payer_account) and not pr.payer_company_account_id:
+        if terms is None or (
+            not terms.payer_company_account_id and not (terms.payer_account or "").strip()
+        ):
+            raise ValueError(
+                "برای تأیید مالی، حساب بانکی مبدأ پرداخت (شرکت) را انتخاب کنید"
+            )
+        if terms.payer_company_account_id:
+            snap, acc_id = cba_svc.resolve_payer_snapshot(
+                db, terms.payer_company_account_id
+            )
+            pr.payer_account = snap
+            pr.payer_company_account_id = acc_id
+        else:
+            pr.payer_account = (terms.payer_account or "").strip()
+        db.flush()
+
+    if payment_terms_complete(pr):
+        return
+
+    if pr.requester_id == user.id:
+        raise ValueError(
+            "درخواست‌دهنده نمی‌تواند تعداد اقساط، تاریخ شروع قسط یا تاریخ تسویه را تعیین کند"
+        )
+
+    if not _user_can_act_on_step(user, step):
+        raise ValueError("access denied")
+
+    if terms is None:
+        if pr.payment_type == PAYMENT_TYPE_LOAN:
+            raise ValueError(
+                "برای تأیید وام، تعداد اقساط و تاریخ شروع قسط اول الزامی است"
+            )
+        raise ValueError("برای تأیید مساعده، تاریخ تسویه الزامی است")
+
+    if pr.payment_type == PAYMENT_TYPE_LOAN:
+        if terms.installment_count is None or terms.installment_count < 1:
+            raise ValueError("تعداد اقساط باید حداقل ۱ باشد")
+        if terms.first_installment_date is None:
+            raise ValueError("تاریخ شروع قسط اول الزامی است")
+        pr.installment_count = terms.installment_count
+        pr.first_installment_date = terms.first_installment_date
+    elif pr.payment_type == PAYMENT_TYPE_ADVANCE:
+        if terms.settlement_date is None:
+            raise ValueError("تاریخ تسویه مساعده الزامی است")
+        pr.settlement_date = terms.settlement_date
+
+    db.flush()
