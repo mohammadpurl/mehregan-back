@@ -1,0 +1,95 @@
+# Mehreagan ERP — Docker Compose (Windows Server + Docker Desktop)
+#
+# Usage (from Backend2 folder):
+#   1. copy deploy\docker\.env.example .env   → edit values
+#   2. docker compose build
+#   3. docker compose up -d
+#   4. run seed scripts once (see deploy\docker\seed.ps1)
+#   5. point IIS web.config to 127.0.0.1:8000 and :3000
+
+name: mehragan-erp
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-task_management}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-erp_user} -d ${POSTGRES_DB:-task_management}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-task_management}
+      RABBITMQ_HOST: rabbitmq
+      UPLOAD_DIR: /app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - uploads_data:/app/data/uploads
+
+  consumer:
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "app.infrastructure.messaging.consumer"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-task_management}
+      RABBITMQ_HOST: rabbitmq
+      UPLOAD_DIR: /app/data/uploads
+    depends_on:
+      backend:
+        condition: service_started
+    volumes:
+      - uploads_data:/app/data/uploads
+
+  frontend:
+    build:
+      context: ../Frontend-Next3/erp
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env}
+        API_URL: http://backend:8000
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      API_URL: http://backend:8000
+      JWT_SERVER_SECRET: ${JWT_SERVER_SECRET:?Set JWT_SERVER_SECRET in .env}
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  postgres_data:
+  uploads_data:

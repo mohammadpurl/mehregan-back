@@ -1,5 +1,13 @@
-import pika
 import json
+import os
+
+import pika
+
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
+
+
+def rabbitmq_connection():
+    return pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
 
 
 class RabbitMQClient:
@@ -11,9 +19,7 @@ class RabbitMQClient:
         if self.connection and not self.connection.is_closed:
             return
 
-        self.connection = pika.BlockingConnection(
-            pika.ConnectionParameters(host="localhost")
-        )
+        self.connection = rabbitmq_connection()
         self.channel = self.connection.channel()
 
         self.channel.queue_declare(queue="erp_events", durable=True)

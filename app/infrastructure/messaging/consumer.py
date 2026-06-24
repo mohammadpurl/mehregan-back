@@ -1,7 +1,6 @@
 import json
 
-import pika
-
+from app.core.rabbitmq import rabbitmq_connection
 from app.gateways.event_gateway import EventGateway
 from app.core.database import SessionLocal
 from app.infrastructure.messaging.publisher import publish_event
@@ -162,7 +161,7 @@ def callback(ch, method, properties, body):
 # START CONSUMER
 # ==============================
 def start_consumer():
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host="localhost"))
+    connection = rabbitmq_connection()
 
     channel = connection.channel()
 
