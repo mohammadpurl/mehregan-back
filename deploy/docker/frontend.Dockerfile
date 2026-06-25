@@ -66,6 +66,12 @@ write(
   `export { TextBox } from "@/app/components/textbox";\n`
 );
 
+const legacyHttp = "/app/app/core/http-service/http-service-yk.ts";
+if (fs.existsSync(legacyHttp)) {
+  fs.unlinkSync(legacyHttp);
+  console.log("[frontend-build-patch] removed app/core/http-service/http-service-yk.ts");
+}
+
 const tsconfigPath = "/app/tsconfig.json";
 const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, "utf8"));
 tsconfig.compilerOptions.paths = {
