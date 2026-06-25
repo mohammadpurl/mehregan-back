@@ -66,10 +66,19 @@ write(
   `export { TextBox } from "@/app/components/textbox";\n`
 );
 
-const legacyHttp = "/app/app/core/http-service/http-service-yk.ts";
-if (fs.existsSync(legacyHttp)) {
-  fs.unlinkSync(legacyHttp);
-  console.log("[frontend-build-patch] removed app/core/http-service/http-service-yk.ts");
+const LEGACY_FILES_TO_REMOVE = [
+  "app/core/http-service/http-service-yk.ts",
+  "app/hooks/useChat.tsx",
+  "services/api.ts",
+  "services/api/index.ts",
+  "types/type.ts",
+];
+for (const rel of LEGACY_FILES_TO_REMOVE) {
+  const full = path.join("/app", rel);
+  if (fs.existsSync(full)) {
+    fs.unlinkSync(full);
+    console.log("[frontend-build-patch] removed", rel);
+  }
 }
 
 const tsconfigPath = "/app/tsconfig.json";
