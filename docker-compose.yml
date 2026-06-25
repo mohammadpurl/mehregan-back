@@ -73,8 +73,8 @@ services:
 
   frontend:
     build:
-      context: ../Frontend-Next3
-      dockerfile: Dockerfile
+      context: ../Frontend-Next3/erp
+      dockerfile: deploy/docker/frontend.Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env}
         API_URL: http://backend:8000
