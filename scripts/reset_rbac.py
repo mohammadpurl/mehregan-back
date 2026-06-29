@@ -293,6 +293,23 @@ def _deprecate_existing_roles(db: Session) -> None:
     db.flush()
 
 
+def _detach_sla_policies_before_role_delete(db: Session) -> int:
+    """Null SLA FKs still pointing at deprecated roles so they can be deleted."""
+    deprecated_role_ids = [
+        int(rid)
+        for (rid,) in db.query(Role.id).filter(Role.name.like("__deprecated_%")).all()
+    ]
+    if not deprecated_role_ids:
+        return 0
+    updated = (
+        db.query(SlaPolicy)
+        .filter(SlaPolicy.escalate_to_role_id.in_(deprecated_role_ids))
+        .update({SlaPolicy.escalate_to_role_id: None}, synchronize_session=False)
+    )
+    db.flush()
+    return int(updated or 0)
+
+
 def _delete_deprecated_roles(db: Session) -> None:
     used_role_ids = {
         r[0]
@@ -487,6 +504,9 @@ def main() -> None:
             _restore_workflow_step_roles(db, step_roles_backup, role_by_name)
         if sla_roles_backup:
             _restore_sla_policy_roles(db, sla_roles_backup, role_by_name)
+        detached = _detach_sla_policies_before_role_delete(db)
+        if detached:
+            print(f"  detached {detached} sla_policies from old role ids (will re-seed)")
         _delete_deprecated_roles(db)
 
         if not args.skip_user_roles and user_roles_backup:
