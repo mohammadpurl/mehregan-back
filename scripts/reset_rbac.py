@@ -28,7 +28,7 @@ from sqlalchemy import delete, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, engine
-from app.core.schema_patch import ensure_permissions_schema, ensure_postgres_sequences
+from app.core.schema_patch import ensure_permissions_schema, ensure_roles_schema, ensure_postgres_sequences
 from app.models.permission import Permission
 from app.models.role import Role
 from app.models.role_permission import RolePermission
@@ -404,6 +404,7 @@ def main() -> None:
     args = parser.parse_args()
 
     ensure_permissions_schema(engine)
+    ensure_roles_schema(engine)
 
     db = SessionLocal()
     try:

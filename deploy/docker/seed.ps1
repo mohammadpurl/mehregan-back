@@ -25,9 +25,11 @@ function Invoke-BackendScript {
         [string[]]$ScriptArgs
     )
     Write-Host "  -> $Label" -ForegroundColor Cyan
-    docker compose exec -T backend python @ScriptArgs
+    docker compose exec -T backend python @ScriptArgs 2>&1 | Tee-Object -Variable seedOutput | Write-Host
     if ($LASTEXITCODE -ne 0) {
-        throw "Seed failed: $Label"
+        Write-Host "--- script output ---" -ForegroundColor Red
+        $seedOutput | Write-Host
+        throw "Seed failed: $Label (exit $LASTEXITCODE)"
     }
 }
 
@@ -39,7 +41,13 @@ if (-not (docker compose ps -q backend 2>$null)) {
 }
 
 Invoke-BackendScript "apply_schema_patches.py" "scripts/apply_schema_patches.py"
-Invoke-BackendScript "reset_rbac.py" "scripts/reset_rbac.py" "--yes"
+
+try {
+    Invoke-BackendScript "reset_rbac.py" "scripts/reset_rbac.py" "--yes"
+} catch {
+    Write-Host "reset_rbac failed — trying non-destructive seed_rbac_if_empty.py ..." -ForegroundColor Yellow
+    Invoke-BackendScript "seed_rbac_if_empty.py" "scripts/seed_rbac_if_empty.py"
+}
 
 $workflowScripts = @(
     "scripts/ensure_procurement_workflow_setup.py",
