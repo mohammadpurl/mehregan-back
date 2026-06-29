@@ -11,7 +11,7 @@ name: mehragan-erp
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-erp_user}
@@ -30,7 +30,7 @@ services:
       retries: 12
 
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: ${RABBITMQ_IMAGE:-rabbitmq:3.13-management-alpine}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
@@ -39,7 +39,10 @@ services:
       retries: 12
 
   backend:
-    build: .
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -57,7 +60,10 @@ services:
       - uploads_data:/app/data/uploads
 
   consumer:
-    build: .
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm}
     restart: unless-stopped
     command: ["python", "-m", "app.infrastructure.messaging.consumer"]
     env_file: .env
@@ -74,8 +80,9 @@ services:
   frontend:
     build:
       context: ../Frontend-Next3/erp
-      dockerfile: deploy/docker/frontend.Dockerfile
+      dockerfile: Dockerfile
       args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env}
         API_URL: http://backend:8000
     restart: unless-stopped
