@@ -5,11 +5,14 @@
 #   Set-ExecutionPolicy -Scope Process Bypass
 #   .\seed.ps1
 #
-# Optional: grant super-admin to user id after seed:
-#   .\seed.ps1 -GrantSuperAdminUserId 1
+# Optional: grant super-admin to CEO after seed:
+#   .\seed.ps1 -GrantSuperAdminToCeo
+# Or by numeric id (see seed_ceo_user output for user_id):
+#   .\seed.ps1 -GrantSuperAdminUserId 3
 
 param(
-    [int]$GrantSuperAdminUserId = 0
+    [int]$GrantSuperAdminUserId = 0,
+    [switch]$GrantSuperAdminToCeo
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,7 +79,12 @@ foreach ($script in $workflowScripts) {
 Invoke-BackendScript "seed_sla_policies.py" "scripts/seed_sla_policies.py"
 Invoke-BackendScript "seed_ceo_user.py" "scripts/seed_ceo_user.py"
 
-if ($GrantSuperAdminUserId -gt 0) {
+if ($GrantSuperAdminToCeo) {
+    Invoke-BackendScript "grant_role_to_user.py" `
+        "scripts/grant_role_to_user.py" `
+        "--username" "mjyounesi" `
+        "--role" "super-admin"
+} elseif ($GrantSuperAdminUserId -gt 0) {
     Invoke-BackendScript "grant_role_to_user.py" `
         "scripts/grant_role_to_user.py" `
         "--user-id" "$GrantSuperAdminUserId" `
@@ -87,4 +95,4 @@ Write-Host ""
 Write-Host "Seed completed." -ForegroundColor Green
 Write-Host "IMPORTANT: log out and log in again so menu permissions refresh." -ForegroundColor Yellow
 Write-Host "CEO login: username=mjyounesi  password=123456  (change after first login)" -ForegroundColor Yellow
-Write-Host 'For full menus during setup, run: .\seed.ps1 -GrantSuperAdminUserId 1' -ForegroundColor Yellow
+Write-Host 'For full menus during setup, run: .\seed.ps1 -GrantSuperAdminToCeo' -ForegroundColor Yellow
