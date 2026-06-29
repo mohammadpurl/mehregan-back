@@ -5,7 +5,8 @@
 #   2. docker compose build
 #   3. docker compose up -d
 #   4. run seed scripts once (see deploy\docker\seed.ps1)
-#   5. point IIS web.config to 127.0.0.1:8000 and :3000
+#   5. ERP UI/API on host ports (default 8080/8081) — no IIS required
+#      Override: BACKEND_PUBLISH_PORT / FRONTEND_PUBLISH_PORT in .env
 
 name: mehragan-erp
 
@@ -55,7 +56,7 @@ services:
       rabbitmq:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${BACKEND_PUBLISH_PORT:-8081}:8000"
     volumes:
       - uploads_data:/app/data/uploads
       - ./scripts:/app/scripts:ro
@@ -97,7 +98,7 @@ services:
       backend:
         condition: service_started
     ports:
-      - "127.0.0.1:3000:3000"
+      - "${FRONTEND_PUBLISH_PORT:-8080}:3000"
 
 volumes:
   postgres_data:
