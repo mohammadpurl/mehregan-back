@@ -14,6 +14,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Docker/Python log to stderr; PS 5.1 treats that as a terminating error with Stop.
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
 $backendRoot = Join-Path $PSScriptRoot "..\.."
 Set-Location $backendRoot
 
@@ -25,7 +30,14 @@ function Invoke-BackendScript {
         [string[]]$ScriptArgs
     )
     Write-Host "  -> $Label" -ForegroundColor Cyan
-    docker compose exec -T backend python @ScriptArgs 2>&1 | Tee-Object -Variable seedOutput | Write-Host
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $seedOutput = docker compose exec -T backend python @ScriptArgs 2>&1
+        $seedOutput | Write-Host
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "--- script output ---" -ForegroundColor Red
         $seedOutput | Write-Host
