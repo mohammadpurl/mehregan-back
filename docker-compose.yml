@@ -81,7 +81,7 @@ services:
 
   frontend:
     build:
-      context: ../Frontend-Next3/erp
+      context: ${FRONTEND_CONTEXT:-../Frontend-Next3}
       dockerfile: Dockerfile
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
