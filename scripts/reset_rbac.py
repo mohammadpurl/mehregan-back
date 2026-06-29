@@ -33,6 +33,7 @@ from app.models.permission import Permission
 from app.models.role import Role
 from app.models.role_permission import RolePermission
 from app.models.user_role import UserRole
+from app.models.sla_policy import SlaPolicy
 from app.models.workflow_step import WorkflowStep
 from app.constants.role_labels import ROLE_DISPLAY_NAMES
 
@@ -252,6 +253,39 @@ def _backup_workflow_step_roles(db: Session) -> list[tuple[int, str]]:
     return [(int(sid), str(rname)) for sid, rname in rows]
 
 
+def _backup_sla_policy_roles(db: Session) -> list[tuple[int, str]]:
+    rows = (
+        db.execute(
+            select(SlaPolicy.id, Role.name)
+            .join(Role, Role.id == SlaPolicy.escalate_to_role_id)
+        )
+        .all()
+    )
+    return [(int(pid), str(rname)) for pid, rname in rows]
+
+
+def _restore_sla_policy_roles(
+    db: Session,
+    backup: list[tuple[int, str]],
+    role_by_name: dict[str, int],
+) -> None:
+    restored = 0
+    skipped = 0
+    for policy_id, role_name in backup:
+        role_id = role_by_name.get(role_name)
+        if not role_id:
+            print(
+                f"  WARN: cannot restore sla_policies id={policy_id} role={role_name!r}"
+            )
+            skipped += 1
+            continue
+        policy = db.get(SlaPolicy, policy_id)
+        if policy:
+            policy.escalate_to_role_id = role_id
+            restored += 1
+    print(f"  sla_policies escalate_to_role_id restored={restored} skipped={skipped}")
+
+
 def _deprecate_existing_roles(db: Session) -> None:
     """workflow_steps به roles FK دارد؛ نقش‌های قدیمی را rename می‌کنیم تا نام‌های جدید جا شوند."""
     for role in db.query(Role).all():
@@ -265,6 +299,11 @@ def _delete_deprecated_roles(db: Session) -> None:
         for r in db.execute(select(WorkflowStep.role_id).distinct()).all()
         if r[0] is not None
     }
+    used_role_ids.update(
+        r[0]
+        for r in db.execute(select(SlaPolicy.escalate_to_role_id).distinct()).all()
+        if r[0] is not None
+    )
     deprecated = db.query(Role).filter(Role.name.like("__deprecated_%")).all()
     removed = 0
     kept = 0
@@ -277,7 +316,7 @@ def _delete_deprecated_roles(db: Session) -> None:
     db.flush()
     if kept:
         print(
-            f"  kept {kept} deprecated role(s) still referenced by workflow_steps"
+            f"  kept {kept} deprecated role(s) still referenced by workflow_steps/sla_policies"
         )
     print(f"  removed {removed} unused deprecated role(s)")
 
@@ -426,11 +465,14 @@ def main() -> None:
 
         user_roles_backup: list[tuple[int, str]] = []
         step_roles_backup: list[tuple[int, str]] = []
+        sla_roles_backup: list[tuple[int, str]] = []
         if not args.skip_user_roles:
             user_roles_backup = _backup_user_roles(db)
             print(f"  backed up {len(user_roles_backup)} user_roles rows")
         step_roles_backup = _backup_workflow_step_roles(db)
         print(f"  backed up {len(step_roles_backup)} workflow_steps role mappings")
+        sla_roles_backup = _backup_sla_policy_roles(db)
+        print(f"  backed up {len(sla_roles_backup)} sla_policies role mappings")
 
         print(
             "Clearing role_permissions, user_roles, permissions; "
@@ -443,6 +485,8 @@ def main() -> None:
 
         if step_roles_backup:
             _restore_workflow_step_roles(db, step_roles_backup, role_by_name)
+        if sla_roles_backup:
+            _restore_sla_policy_roles(db, sla_roles_backup, role_by_name)
         _delete_deprecated_roles(db)
 
         if not args.skip_user_roles and user_roles_backup:
