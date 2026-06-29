@@ -45,7 +45,7 @@ Invoke-BackendScript "apply_schema_patches.py" "scripts/apply_schema_patches.py"
 try {
     Invoke-BackendScript "reset_rbac.py" "scripts/reset_rbac.py" "--yes"
 } catch {
-    Write-Host "reset_rbac failed — trying non-destructive seed_rbac_if_empty.py ..." -ForegroundColor Yellow
+    Write-Host "reset_rbac failed - trying non-destructive seed_rbac_if_empty.py ..." -ForegroundColor Yellow
     Invoke-BackendScript "seed_rbac_if_empty.py" "scripts/seed_rbac_if_empty.py"
 }
 
@@ -75,4 +75,4 @@ Write-Host ""
 Write-Host "Seed completed." -ForegroundColor Green
 Write-Host "IMPORTANT: log out and log in again so menu permissions refresh." -ForegroundColor Yellow
 Write-Host "CEO login: username=mjyounesi  password=123456  (change after first login)" -ForegroundColor Yellow
-Write-Host "For full menus during setup, run: .\seed.ps1 -GrantSuperAdminUserId <USER_ID>" -ForegroundColor Yellow
+Write-Host 'For full menus during setup, run: .\seed.ps1 -GrantSuperAdminUserId 1' -ForegroundColor Yellow
