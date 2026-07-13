@@ -61,13 +61,19 @@ INSERT INTO users (
     is_active,
     created_at
 ) VALUES
-    ('ceo1',        'ceo@example.com',        '09120000001', 'نام', 'مدیرعامل',   '<PASTE_BCRYPT_HASH>', true, NOW()),
-    ('finance1',    'finance@example.com',    '09120000002', 'نام', 'مالی',       '<PASTE_BCRYPT_HASH>', true, NOW()),
-    ('warehouse1',  'warehouse@example.com',  '09120000003', 'نام', 'انبار',      '<PASTE_BCRYPT_HASH>', true, NOW()),
-    ('procure1',    'procure@example.com',    '09120000004', 'نام', 'تدارکات',    '<PASTE_BCRYPT_HASH>', true, NOW()),
-    ('requester1',  'requester@example.com',  '09120000005', 'نام', 'درخواست‌کننده', '<PASTE_BCRYPT_HASH>', true, NOW()),
-    ('admin1',      'admin@example.com',      '09120000006', 'نام', 'ادمین',      '<PASTE_BCRYPT_HASH>', true, NOW())
-ON CONFLICT (username) DO UPDATE SET
+    ('mjyounesi',        'younesi@gmail.com',        '09128177521', 'محمدجلال', 'یونسی',   'younesiceo1!@#', true, NOW()),
+    ('mardi',    'mardi@gmail.com',    '09123120953', 'محمدرضا', 'مردی',       'matdi!@#', true, NOW()),
+    ('moniri',  'moniri@gmail.com',  '09120000003', 'مدیر پروژه', 'منیری',      'moniriprojectmanager!@#', true, NOW()),
+    ('bagherian',    'bagherian@gmail.com',    '09120000004',  'مدیر پروژه', 'باقریان',    'bagherianprojectmanager!@#', true, NOW()),
+    ('rahimi',  'rahimi@gmail.com',  '09120000005', 'مدیرمالی', 'رحیمی', 'rahimifinancemanager!@#', true, NOW()),
+    ('haghighi',  'haghighi@gmail.com',  '09120000006', 'مسئول خرید', 'حقیقی', 'haghighi!@#', true, NOW()),
+    ('nazari',      'nazari@gmail.com',      '09120000006', 'کارشناس پروژه', 'نظری',      'nazari!@#', true, NOW()),
+    ('nikbin',      'nikbin@gmail.com',      '09120000006', 'اموراداری', 'نیک بین',      'nikbin!@#', true, NOW()),
+    ('hejazifar',      'hejazifar@gmail.com',      '09120000006', 'سرپرست مالی', 'حجازی فر',      'hejazifar!@#', true, NOW()),
+    ('alizadeh',      'alizadeh@gmail.com',      '09120000006', 'سرپرست انبار', 'الیزاده',      'alizadeh!@#', true, NOW()),
+    ('torkaman',      'torkaman@gmail.com',      '09120000006', 'کارسناس مالی', 'ترکمان',      'torkaman!@#', true, NOW()),
+    ('mehrvarz',      'mehrvarz@gmail.com',      '09120000006', 'کارسناس دفتر مشهد', 'مهرورز',      'mehrvarz!@#', true, NOW()),
+    ON CONFLICT (username) DO UPDATE SET
     email = EXCLUDED.email,
     mobile = EXCLUDED.mobile,
     first_name = EXCLUDED.first_name,
