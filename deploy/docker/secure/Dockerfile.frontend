@@ -1,0 +1,59 @@
+# Multi-stage hardened Next.js (standalone)
+# Context: Frontend-Next3 root (or erp/). Dockerfile path passed via compose.
+
+ARG NODE_IMAGE=node:20-alpine
+
+# ── builder ──────────────────────────────────────────────────────────
+FROM ${NODE_IMAGE} AS builder
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat \
+ && addgroup -g 10001 -S nodejs \
+ && adduser -S -u 10001 -G nodejs nextjs
+
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG API_URL=http://backend:8000
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    API_URL=$API_URL
+
+COPY package.json package-lock.json* ./
+COPY . .
+
+RUN npm ci --no-audit --no-fund \
+  || (rm -rf node_modules package-lock.json && npm install --no-audit --no-fund)
+
+RUN if [ -f scripts/patch-legacy-build.mjs ]; then node scripts/patch-legacy-build.mjs; fi \
+ && node ./node_modules/next/dist/bin/next build \
+ && chown -R nextjs:nodejs /app
+
+# ── runner ───────────────────────────────────────────────────────────
+ARG NODE_IMAGE=node:20-alpine
+FROM ${NODE_IMAGE} AS runner
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat wget \
+ && addgroup -g 10001 -S nodejs \
+ && adduser -S -u 10001 -G nodejs nextjs
+
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG API_URL=http://backend:8000
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    API_URL=$API_URL \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
+
+# Standalone output only — no node_modules / source
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER 10001:10001
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]

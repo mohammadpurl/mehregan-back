@@ -1,0 +1,59 @@
+# Backend build context ignore list (copy/merge into Backend2/.dockerignore)
+
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+.tox
+.nox
+
+.venv
+venv
+env
+
+.git
+.gitignore
+.gitattributes
+.github
+
+.env
+.env.*
+!.env.example
+
+data
+storage
+uploads
+*.db
+*.sqlite3
+
+# Docs / deploy noise (keep secure Dockerfiles outside context via -f)
+*.md
+!README.md
+deploy/windows
+deploy/docker/*.ps1
+deploy/docker/export-images.ps1
+deploy/docker/build-and-export.ps1
+dist
+*.tar
+*.log
+
+# Tests (optional — uncomment to shrink image further)
+# tests
+# **/test_*.py
+
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+.vscode
+.idea
+*.swp
+*~
+Thumbs.db
+Desktop.ini

@@ -228,6 +228,25 @@ def update_user_admin(db: Session, user_id: int, payload: UserUpdate) -> dict:
             detail="کاربر یافت نشد",
         )
 
+    if payload.username is not None:
+        username = payload.username.strip()
+        if not username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="نام کاربری نمی‌تواند خالی باشد",
+            )
+        other = (
+            db.query(User)
+            .filter(User.username == username, User.id != user_id)
+            .first()
+        )
+        if other:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="این نام کاربری قبلاً استفاده شده است",
+            )
+        user.username = username
+
     if payload.email is not None:
         other = (
             db.query(User)
@@ -265,7 +284,13 @@ def update_user_admin(db: Session, user_id: int, payload: UserUpdate) -> dict:
     if payload.is_active is not None:
         user.is_active = payload.is_active
     if payload.password:
-        user.hashed_password = get_password_hash(payload.password)
+        plain = payload.password.strip()
+        if len(plain) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="رمز عبور باید حداقل ۶ کاراکتر باشد",
+            )
+        user.hashed_password = get_password_hash(plain)
 
     if payload.manager_id is not None:
         if payload.manager_id == 0:

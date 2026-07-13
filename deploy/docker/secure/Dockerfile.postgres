@@ -1,0 +1,18 @@
+# Official postgres:16-alpine already runs as non-root (postgres UID).
+# Custom Dockerfile is optional — use only if you need init scripts / extensions.
+#
+# Prefer pinning digest in production:
+#   docker pull postgres:16-alpine
+#   docker image inspect --format='{{index .RepoDigests 0}}' postgres:16-alpine
+
+ARG POSTGRES_IMAGE=postgres:16-alpine
+FROM ${POSTGRES_IMAGE}
+
+# Do not switch USER — entrypoint must start as root briefly to fix volume perms,
+# then drops to postgres. Compose applies: privileged=false, no-new-privileges, cap_drop.
+
+# Optional: place init SQL in /docker-entrypoint-initdb.d/
+# COPY init/*.sql /docker-entrypoint-initdb.d/
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=12 \
+  CMD pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" || exit 1

@@ -1,19 +1,41 @@
 __pycache__
+*.py[cod]
+*$py.class
 *.pyc
 *.pyo
 *.pyd
 
 .pytest_cache
 .mypy_cache
+.ruff_cache
+.coverage
+htmlcov
 
 .venv
 venv
+env
 
 data
 storage
+uploads
+*.db
+*.sqlite3
 
 .env
 .env.*
+!.env.example
 
 .git
 .gitignore
+.gitattributes
+.github
+
+*.md
+dist
+*.tar
+*.log
+
+.vscode
+.idea
+Thumbs.db
+Desktop.ini

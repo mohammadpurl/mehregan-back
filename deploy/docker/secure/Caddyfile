@@ -1,0 +1,63 @@
+# Mehreagan ERP — Caddy edge (only public entry)
+#
+# Replace SERVER_IP or use a hostname. For IP-only HTTP (no TLS yet):
+#   :80 { ... }
+# For domain + automatic HTTPS later:
+#   erp.example.com { ... }
+
+{
+	# Reduce fingerprinting
+	admin off
+	auto_https off
+}
+
+:80 {
+	# Health for container healthcheck / load balancers
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# Block API docs at the edge
+	@docs path /backend/docs* /backend/redoc* /backend/openapi.json* /docs* /redoc* /openapi.json*
+	handle @docs {
+		respond "Not Found" 404
+	}
+
+	# Backend API — browser calls http://SERVER_IP:80/backend/... OR direct :8081 in legacy mode
+	# Prefer path-based: rewrite /backend/* → backend:8000/*
+	handle_path /backend/* {
+		reverse_proxy backend:8000 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	# WebSocket
+	handle /ws* {
+		reverse_proxy backend:8000
+	}
+
+	# Uploads
+	handle /uploads/* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else → Next.js
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

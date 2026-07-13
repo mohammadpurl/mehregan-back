@@ -8,7 +8,8 @@ class UserUpdate(UserBankingFieldsMixin, BaseModel):
     phone: str | None = Field(None, max_length=20)
     first_name: str | None = Field(None, min_length=1, max_length=100)
     last_name: str | None = Field(None, min_length=1, max_length=100)
-    password: str | None = Field(None, min_length=6)
+    password: str | None = Field(None, min_length=6, max_length=128)
+    username: str | None = Field(None, min_length=2, max_length=50)
     is_active: bool | None = None
     role_id: int | None = None
     manager_id: int | None = None
