@@ -53,6 +53,8 @@ from app.core.logging import configure_logging
 from app.core.monitoring import init_sentry
 from app.core.config import (
     ALLOWED_ORIGINS,
+    ENABLE_API_DOCS,
+    ENVIRONMENT,
     IP_WHITELIST_ENABLED,
     ALLOWED_IPS,
     IP_WHITELIST_EXEMPT_PATHS,
@@ -88,6 +90,14 @@ logger = logging.getLogger("app.main")
 # root_path for OpenAPI / reverse proxy (see app.core.config.ROOT_PATH)
 root_path_value = ROOT_PATH if ROOT_PATH else None
 
+_docs_kwargs: dict = {}
+if not ENABLE_API_DOCS:
+    _docs_kwargs = {
+        "docs_url": None,
+        "redoc_url": None,
+        "openapi_url": None,
+    }
+
 app = FastAPI(
     title="ERP System",
     description="",
@@ -95,7 +105,15 @@ app = FastAPI(
     root_path=root_path_value,
     root_path_in_servers=True,  # اضافه کردن root_path به servers در OpenAPI schema
     default_response_class=JSONResponse,  # مهم
+    **_docs_kwargs,
 )
+
+if not ENABLE_API_DOCS:
+    logger.info(
+        "API docs disabled (ENVIRONMENT=%s, ENABLE_API_DOCS=%s)",
+        ENVIRONMENT,
+        ENABLE_API_DOCS,
+    )
 
 UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIRECTORY)), name="uploads")
@@ -319,19 +337,20 @@ app.add_middleware(
 @app.get("/health")
 def health():
     """Health check endpoint for monitoring and load balancers."""
-    return {"status": "ok", "service": "yourlawyer-rag-api"}
+    return {"status": "ok", "service": "mehreagan-erp-api"}
 
 
-@app.get("/openapi.json", include_in_schema=False)
-async def get_openapi_json():
-    """Endpoint برای بازگرداندن OpenAPI schema با در نظر گیری root_path."""
-    return app.openapi()
+if ENABLE_API_DOCS:
 
+    @app.get("/openapi.json", include_in_schema=False)
+    async def get_openapi_json():
+        """Endpoint برای بازگرداندن OpenAPI schema با در نظر گیری root_path."""
+        return app.openapi()
 
-@app.get("/backend/openapi.json", include_in_schema=False)
-async def get_openapi_json_backend():
-    """Endpoint برای بازگرداندن OpenAPI schema از مسیر /backend/openapi.json."""
-    return app.openapi()
+    @app.get("/backend/openapi.json", include_in_schema=False)
+    async def get_openapi_json_backend():
+        """Endpoint برای بازگرداندن OpenAPI schema از مسیر /backend/openapi.json."""
+        return app.openapi()
 
 
 app.include_router(auth_router)

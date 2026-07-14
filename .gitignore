@@ -23,6 +23,7 @@ wheels/
 *.egg
 .env
 .venv
+deploy/docker/ROTATED_SECRETS_LOCAL_ONLY.txt
 *.db
 *.sqlite
 uploads/

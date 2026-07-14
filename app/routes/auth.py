@@ -1,18 +1,18 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime, timezone
 from uuid import uuid4
-from app.core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.core.config import ACCESS_TOKEN_EXPIRE_MINUTES
 
 from app.schemas.auth import LoginRequest
 
 from app.core.database import get_db
-from app.schemas.auth import RegisterRequest, TokenResponse
+from app.core.rate_limit import auth_rate_limit, limiter
+from app.schemas.auth import TokenResponse
 from app.schemas.menu import NavMenuItemOut
 from app.schemas.user import AuthMeResponse, UserProfileResponse, UserProfileUpdate
 from app.services.auth import (
-    create_user,
     authenticate_user,
     create_access_token,
 )
@@ -64,12 +64,6 @@ def _token_response_for_user(db: Session, user) -> TokenResponse:
     )
 
 
-@router.post("/register", response_model=TokenResponse)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    user = create_user(db, payload)
-    return _token_response_for_user(db, user)
-
-
 def _login_or_401(db: Session, username: str, password: str):
     user = authenticate_user(db, username, password)
     if not user:
@@ -82,7 +76,12 @@ def _login_or_401(db: Session, username: str, password: str):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit(auth_rate_limit())
+def login(
+    request: Request,
+    payload: LoginRequest,
+    db: Session = Depends(get_db),
+):
     """
     ورود — همان قرارداد فرانت (JSON).
     Body: { "username": "...", "password": "..." }
@@ -92,7 +91,9 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/token", response_model=TokenResponse, include_in_schema=False)
+@limiter.limit(auth_rate_limit())
 def login_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):

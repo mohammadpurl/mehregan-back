@@ -36,10 +36,36 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
 RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
-# Auth
-SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret")
+# Auth — SECRET_KEY must be provided via env (no insecure default)
+_secret_raw = (os.getenv("SECRET_KEY") or "").strip()
+_INSECURE_SECRET_DEFAULTS = frozenset(
+    {
+        "",
+        "change-this-secret",
+        "CHANGE_ME",
+        "CHANGE_ME_BACKEND_JWT_SECRET",
+        "CHANGE_ME_BACKEND_JWT_SECRET_64CHARS",
+        "CHANGE_ME_USE_openssl_or_PowerShell_random_64_chars",
+    }
+)
+if _secret_raw in _INSECURE_SECRET_DEFAULTS or len(_secret_raw) < 32:
+    raise RuntimeError(
+        "SECRET_KEY is missing or weak. Set a strong secret via environment "
+        "(at least 32 characters; never use placeholder defaults)."
+    )
+SECRET_KEY = _secret_raw
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
+# Swagger / ReDoc / OpenAPI JSON — off in production unless ENABLE_API_DOCS=true
+_enable_docs_raw = os.getenv("ENABLE_API_DOCS", "").strip().lower()
+if _enable_docs_raw in {"1", "true", "yes", "on"}:
+    ENABLE_API_DOCS = True
+elif _enable_docs_raw in {"0", "false", "no", "off"}:
+    ENABLE_API_DOCS = False
+else:
+    ENABLE_API_DOCS = ENVIRONMENT not in {"production", "prod"}
 
 # Reverse-proxy subpath (empty = local dev at http://localhost:8000/auth/...)
 # Set ROOT_PATH=/backend in .env when API is served under /backend
@@ -84,9 +110,7 @@ ALLOWED_IPS: List[str] = [
 ]
 
 IP_WHITELIST_ENABLED = os.getenv("IP_WHITELIST_ENABLED", "true").lower() == "true"
+# Only LB health checks should bypass IP whitelist (never expose /docs publicly)
 IP_WHITELIST_EXEMPT_PATHS = [
     "/health",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
-]  # مسیرهای مستثنی (که بدون چک IP کار کنند)
+]
