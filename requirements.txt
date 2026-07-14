@@ -1,24 +1,11 @@
+# Core API (production ERP) — keep lean for Docker builds
 fastapi==0.139.0
-# FastAPI docs: do not hard-pin Starlette to an unrelated major; install resolves
-# a compatible version (FastAPI 0.139 requires starlette>=0.46.0). Soft lower bound:
 starlette>=0.46.0
 uvicorn[standard]==0.51.0
 pydantic>=2.9.0,<3
 python-multipart==0.0.32
 openpyxl==3.1.5
 psycopg[binary]==3.2.3
-
-# LangChain 1.x (major — code migration notes in chat / below)
-langchain==1.3.13
-langchain-core==1.4.9
-langchain-openai==1.3.5
-langchain-text-splitters==1.1.2
-langchain-ollama>=0.3.0
-openai>=1.102.0,<2
-
-# Document loaders
-pypdf==6.14.2
-# python-docx==1.2.0  # still imported by app/ingestion.py — install if RAG ingest is used
 
 # Utils
 tqdm==4.67.1
@@ -37,6 +24,10 @@ sentry-sdk==2.19.2
 slowapi==0.1.9
 redis==5.2.1
 pika==1.3.2
-huggingface-hub>=0.30.0
-transformers>=4.30.0
-torch>=2.0.0
+
+# Optional PDF helper (lightweight; used by RAG ingest module if enabled)
+pypdf==6.14.2
+
+# RAG / LLM stack is NOT installed by default (heavy + breaks restricted Docker Hub/PyPI).
+# Install separately when needed:
+#   pip install -r requirements-rag.txt
