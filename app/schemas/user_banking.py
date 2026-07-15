@@ -1,14 +1,26 @@
 import re
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 _ACCOUNT_NUMBER_RE = re.compile(r"^\d{5,30}$")
 _CARD_NUMBER_RE = re.compile(r"^\d{16,19}$")
 _SHEBA_RE = re.compile(r"^IR\d{24}$", re.IGNORECASE)
 
+_BANKING_REQUIRED_MSG = (
+    "حداقل یکی از شماره حساب، شماره کارت یا شماره شبا باید وارد شود"
+)
+
 
 class UserBankingFieldsMixin(BaseModel):
-    """شماره حساب، کارت و شبا — اختیاری."""
+    """شماره حساب، کارت و شبا — هر فیلد به‌تنهایی اختیاری است؛ قید «حداقل یکی»
+    در UserBankingRequiredMixin / require_one_banking اعمال می‌شود."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -66,3 +78,16 @@ class UserBankingFieldsMixin(BaseModel):
         if not _SHEBA_RE.match(value):
             raise ValueError("شماره شبا باید به صورت IR و ۲۴ رقم باشد")
         return value
+
+    def has_any_banking_field(self) -> bool:
+        return bool(self.account_number or self.card_number or self.sheba_number)
+
+
+class UserBankingRequiredMixin(UserBankingFieldsMixin):
+    """حداقل یکی از شماره حساب / کارت / شبا اجباری است."""
+
+    @model_validator(mode="after")
+    def require_one_banking_field(self):
+        if not self.has_any_banking_field():
+            raise ValueError(_BANKING_REQUIRED_MSG)
+        return self

@@ -109,6 +109,8 @@ def create_payment_order_api(
             payment_method=payload.payment_method,
             payer_company_account_id=payload.payer_company_account_id,
             counterparty_bank_account_id=payload.counterparty_bank_account_id,
+            receiver_name=payload.receiver_name,
+            receiver_account_number=payload.receiver_account_number,
             payment_date=payload.payment_date,
             reason=payload.reason,
             assignees_by_order=payload.assignees_by_order,
@@ -129,20 +131,19 @@ def create_payment_request_api(
         payer_company_account_id = payload.payer_company_account_id
         receiver_counterparty_account_id = payload.counterparty_bank_account_id
         if payload.payment_type == "payment_order":
-            if not payload.counterparty_id:
-                raise ValueError("برای دستور پرداخت انتخاب طرف حساب الزامی است")
-            if not payer_company_account_id or not receiver_counterparty_account_id:
-                raise ValueError("انتخاب حساب مبدأ و مقصد الزامی است")
-            payer_account, payer_company_account_id = cba_svc.resolve_payer_snapshot(
-                db, payer_company_account_id
-            )
-            receiver_account, receiver_counterparty_account_id = (
-                cp_ba_svc.resolve_receiver_snapshot(
-                    db,
-                    payload.counterparty_id,
-                    receiver_counterparty_account_id,
+            # طرف‌حساب از لیست اختیاری است؛ مقصد می‌تواند به‌صورت متنی در receiver_account باشد
+            if payer_company_account_id:
+                payer_account, payer_company_account_id = cba_svc.resolve_payer_snapshot(
+                    db, payer_company_account_id
                 )
-            )
+            if payload.counterparty_id and receiver_counterparty_account_id:
+                receiver_account, receiver_counterparty_account_id = (
+                    cp_ba_svc.resolve_receiver_snapshot(
+                        db,
+                        payload.counterparty_id,
+                        receiver_counterparty_account_id,
+                    )
+                )
         return create_payment_request(
             db=db,
             requester_id=user.id,

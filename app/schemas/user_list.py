@@ -1,6 +1,10 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
-from app.schemas.user_banking import UserBankingFieldsMixin
+from app.schemas.user_banking import (
+    UserBankingFieldsMixin,
+    UserBankingRequiredMixin,
+    _BANKING_REQUIRED_MSG,
+)
 
 
 class UserUpdate(UserBankingFieldsMixin, BaseModel):
@@ -15,8 +19,16 @@ class UserUpdate(UserBankingFieldsMixin, BaseModel):
     manager_id: int | None = None
     department_id: int | None = None
 
+    @model_validator(mode="after")
+    def require_one_banking_when_form_sends_all(self):
+        """فرم ادمین هر سه فیلد را می‌فرستد؛ در آن حالت حداقل یکی اجباری است."""
+        banking = {"account_number", "card_number", "sheba_number"}
+        if banking.issubset(self.model_fields_set) and not self.has_any_banking_field():
+            raise ValueError(_BANKING_REQUIRED_MSG)
+        return self
 
-class UserCreate(UserBankingFieldsMixin, BaseModel):
+
+class UserCreate(UserBankingRequiredMixin, BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6)
     email: EmailStr | None = None

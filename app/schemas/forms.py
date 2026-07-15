@@ -62,7 +62,7 @@ class PaymentOrderCreate(BaseModel):
         validation_alias="paymentOrderKind",
         description="individual | collective",
     )
-    counterparty_id: int | None = Field(None, description="شناسه طرف حساب — انفرادی الزامی")
+    counterparty_id: int | None = Field(None, description="شناسه طرف حساب — اختیاری (برای پر کردن خودکار)")
     payer_company_account_id: int | None = Field(
         None,
         validation_alias="payerCompanyAccountId",
@@ -71,7 +71,19 @@ class PaymentOrderCreate(BaseModel):
     counterparty_bank_account_id: int | None = Field(
         None,
         validation_alias="counterpartyBankAccountId",
-        description="حساب بانکی طرف‌حساب (مقصد) — انفرادی الزامی",
+        description="حساب بانکی طرف‌حساب از لیست — اختیاری",
+    )
+    receiver_name: str | None = Field(
+        None,
+        validation_alias="receiverName",
+        max_length=255,
+        description="نام طرف‌حساب یا شماره اشتراک آب",
+    )
+    receiver_account_number: str | None = Field(
+        None,
+        validation_alias="receiverAccountNumber",
+        max_length=50,
+        description="شماره حساب مقصد",
     )
     amount: OptionalMoneyAmount = None
     payment_method: str = Field(
@@ -92,10 +104,12 @@ class PaymentOrderCreate(BaseModel):
         if kind not in ("individual", "collective"):
             raise ValueError("paymentOrderKind باید individual یا collective باشد")
         if kind == "individual":
-            if not self.counterparty_id:
-                raise ValueError("برای دستور پرداخت انفرادی طرف حساب الزامی است")
-            if not self.counterparty_bank_account_id:
-                raise ValueError("برای دستور پرداخت انفرادی حساب مقصد الزامی است")
+            name = (self.receiver_name or "").strip()
+            account = (self.receiver_account_number or "").strip()
+            if len(name) < 2:
+                raise ValueError("نام یا شماره اشتراک آب الزامی است")
+            if len(account) < 5:
+                raise ValueError("شماره حساب مقصد الزامی است")
             if self.amount is None or self.amount <= 0:
                 raise ValueError("مبلغ باید بزرگ‌تر از صفر باشد")
         elif self.amount is None:

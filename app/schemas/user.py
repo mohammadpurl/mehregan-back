@@ -2,7 +2,7 @@ import re
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from app.schemas.user_banking import UserBankingFieldsMixin
+from app.schemas.user_banking import UserBankingRequiredMixin
 
 _NATIONAL_ID_RE = re.compile(r"^\d{10}$")
 
@@ -50,8 +50,8 @@ class AuthMeResponse(UserProfileResponse):
     pass
 
 
-class UserProfileUpdate(UserBankingFieldsMixin, BaseModel):
-    """PATCH /auth/profile — شامل card_number / sheba_number (یا cardNumber / shebaNumber)."""
+class UserProfileUpdate(UserBankingRequiredMixin, BaseModel):
+    """PATCH /auth/profile — حداقل یکی از حساب / کارت / شبا اجباری است."""
 
     model_config = ConfigDict(populate_by_name=True)
 

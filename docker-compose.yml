@@ -50,6 +50,9 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-task_management}
       RABBITMQ_HOST: rabbitmq
       UPLOAD_DIR: /app/data/uploads
+      # Swagger off unless ENABLE_API_DOCS=true; compose defaults ENVIRONMENT to production
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
     depends_on:
       postgres:
         condition: service_healthy

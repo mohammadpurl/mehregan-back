@@ -256,6 +256,8 @@ def create_payment_order(
     payer_company_account_id: int | None = None,
     counterparty_id: int | None = None,
     counterparty_bank_account_id: int | None = None,
+    receiver_name: str | None = None,
+    receiver_account_number: str | None = None,
     assignees_by_order: dict[str, int] | None = None,
 ):
     kind = (payment_order_kind or PAYMENT_ORDER_KIND_INDIVIDUAL).strip().lower()
@@ -274,17 +276,25 @@ def create_payment_order(
     receiver_snap = "پرداخت جمعی"
 
     if kind == PAYMENT_ORDER_KIND_INDIVIDUAL:
-        if not counterparty_id:
-            raise ValueError("برای دستور پرداخت انفرادی انتخاب طرف حساب الزامی است")
-        cp = db.get(Counterparty, counterparty_id)
-        if not cp or not cp.is_active:
-            raise ValueError("طرف حساب یافت نشد یا غیرفعال است")
-        if not counterparty_bank_account_id:
-            raise ValueError("انتخاب حساب مقصد الزامی است")
-        cp_id = counterparty_id
-        receiver_snap, receiver_id = cp_ba_svc.resolve_receiver_snapshot(
-            db, counterparty_id, counterparty_bank_account_id
-        )
+        manual_name = (receiver_name or "").strip()
+        manual_account = (receiver_account_number or "").strip()
+        if len(manual_name) < 2:
+            raise ValueError("نام یا شماره اشتراک آب الزامی است")
+        if len(manual_account) < 5:
+            raise ValueError("شماره حساب مقصد الزامی است")
+
+        receiver_snap = f"{manual_name} | {manual_account}"
+        if len(receiver_snap) > 100:
+            receiver_snap = receiver_snap[:97] + "..."
+
+        if counterparty_id:
+            cp = db.get(Counterparty, counterparty_id)
+            if cp and cp.is_active:
+                cp_id = counterparty_id
+                if counterparty_bank_account_id:
+                    _, receiver_id = cp_ba_svc.resolve_receiver_snapshot(
+                        db, counterparty_id, counterparty_bank_account_id
+                    )
 
     return create_payment_request(
         db=db,
@@ -327,12 +337,12 @@ def create_payment_request(
         kind = (payment_order_kind or PAYMENT_ORDER_KIND_INDIVIDUAL).strip().lower()
         if kind == PAYMENT_ORDER_KIND_INDIVIDUAL:
             if not counterparty_id:
-                raise ValueError("برای دستور پرداخت انفرادی انتخاب طرف حساب الزامی است")
-            cp = db.get(Counterparty, counterparty_id)
-            if not cp or not cp.is_active:
-                raise ValueError("طرف حساب یافت نشد یا غیرفعال است")
-            if not receiver_counterparty_account_id:
-                raise ValueError("انتخاب حساب مقصد الزامی است")
+                pass  # ورود دستی — بدون لینک به طرف‌حساب
+            else:
+                cp = db.get(Counterparty, counterparty_id)
+                if not cp or not cp.is_active:
+                    raise ValueError("طرف حساب یافت نشد یا غیرفعال است")
+            # receiver از فیلدهای دستی یا snapshot پر می‌شود
         if not payment_method:
             raise ValueError("روش پرداخت (چک یا حواله) الزامی است")
         resolved_method = _require_payment_method(payment_method)
