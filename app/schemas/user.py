@@ -29,6 +29,8 @@ class UserProfileResponse(BaseModel):
     last_name: str | None = None
     national_id: str | None = None
     father_name: str | None = None
+    account_number: str | None = None
+    accountNumber: str | None = None
     card_number: str | None = None
     cardNumber: str | None = None
     sheba_number: str | None = None

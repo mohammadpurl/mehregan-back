@@ -13,7 +13,30 @@ def create_notification(
     type: str,
     ref_id: int,
     ref_type: str,
+    *,
+    dedupe_unread: bool = False,
 ):
+    """
+    اگر dedupe_unread=True باشد و اعلان خوانده‌نشدهٔ همسان
+    (user + ref_type + ref_id + type) وجود داشته باشد، همان را برمی‌گرداند.
+    جلوگیری از دوبل شدن وقتی API و consumer هر دو notify می‌زنند.
+    """
+    if dedupe_unread and ref_id is not None:
+        existing = (
+            db.query(Notification)
+            .filter(
+                Notification.user_id == user_id,
+                Notification.ref_type == ref_type,
+                Notification.ref_id == ref_id,
+                Notification.type == type,
+                Notification.is_read == False,  # noqa: E712
+            )
+            .order_by(Notification.id.desc())
+            .first()
+        )
+        if existing:
+            return existing
+
     notif = Notification(
         user_id=user_id,
         title=title,
@@ -27,6 +50,27 @@ def create_notification(
     db.add(notif)
     db.flush()
     return notif
+
+
+def mark_unread_for_ref_as_read(
+    db: Session,
+    user_id: int,
+    *,
+    ref_type: str,
+    ref_id: int,
+) -> int:
+    """خوانده‌شدن همه اعلان‌های خوانده‌نشدهٔ یک مرجع برای کاربر."""
+    return (
+        db.query(Notification)
+        .filter(
+            Notification.user_id == user_id,
+            Notification.ref_type == ref_type,
+            Notification.ref_id == ref_id,
+            Notification.is_read == False,  # noqa: E712
+        )
+        .update({"is_read": True}, synchronize_session=False)
+        or 0
+    )
 
 
 # ==============================
@@ -98,6 +142,20 @@ def update_notification(
         return None
     if is_read is not None:
         notif.is_read = is_read
+        # کارتابل موازی همان ref را هم خوانده کن (جلوگیری از badge دوبل)
+        if is_read and notif.ref_id is not None and notif.ref_type:
+            from app.models.inbox import InboxItem
+            from datetime import datetime
+
+            db.query(InboxItem).filter(
+                InboxItem.user_id == user_id,
+                InboxItem.ref_type == notif.ref_type,
+                InboxItem.ref_id == notif.ref_id,
+                InboxItem.is_read == False,  # noqa: E712
+            ).update(
+                {"is_read": True, "read_at": datetime.utcnow()},
+                synchronize_session=False,
+            )
     db.commit()
     db.refresh(notif)
     return notif

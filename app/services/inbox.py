@@ -71,6 +71,16 @@ def mark_as_read(db: Session, inbox_id: int):
 
     item.is_read = True
     item.read_at = datetime.utcnow()
+    # اعلان موازی همان workflow/ref را هم خوانده کن تا badge دوبل نشود
+    if item.user_id and item.ref_id is not None and item.ref_type:
+        from app.services.notification import mark_unread_for_ref_as_read
+
+        mark_unread_for_ref_as_read(
+            db,
+            int(item.user_id),
+            ref_type=str(item.ref_type),
+            ref_id=int(item.ref_id),
+        )
     db.commit()
     return item
 

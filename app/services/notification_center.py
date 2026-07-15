@@ -11,6 +11,49 @@ from app.services.notification import get_unread_count, get_user_notifications
 from app.services.query_utils import apply_sort
 
 
+def get_bell_unread_count(db: Session, user_id: int) -> int:
+    """
+    شمارش badge زنگ: کارتابل خوانده‌نشده + اعلان‌هایی که
+    تکراری با همان (ref_type, ref_id) در کارتابل باز/خوانده‌نشده نیستند.
+    (هر workflow معمولاً هم inbox و هم notification می‌سازد.)
+    """
+    inbox_unread = int(count_user_inbox_unread(db, user_id) or 0)
+
+    open_pairs = (
+        db.query(InboxItem.ref_type, InboxItem.ref_id)
+        .filter(
+            InboxItem.user_id == user_id,
+            InboxItem.is_done == False,  # noqa: E712
+            InboxItem.is_read == False,  # noqa: E712
+            InboxItem.ref_id.isnot(None),
+            InboxItem.ref_type.isnot(None),
+        )
+        .all()
+    )
+    pair_set = {(str(rt), int(rid)) for rt, rid in open_pairs if rid is not None}
+
+    unread_notifs = (
+        db.query(Notification.ref_type, Notification.ref_id)
+        .filter(
+            Notification.user_id == user_id,
+            Notification.is_read == False,  # noqa: E712
+        )
+        .all()
+    )
+    seen_extra: set[tuple[str, int]] = set()
+    notif_extra = 0
+    for rt, rid in unread_notifs:
+        if rid is None or rt is None:
+            notif_extra += 1
+            continue
+        key = (str(rt), int(rid))
+        if key in pair_set or key in seen_extra:
+            continue
+        seen_extra.add(key)
+        notif_extra += 1
+    return inbox_unread + notif_extra
+
+
 def get_notification_center(
     db: Session,
     user_id: int,
@@ -58,9 +101,12 @@ def get_notification_feed(
         sort_by="created_at",
         sort_order="desc",
     )
+    inbox_unread = int(count_user_inbox_unread(db, user_id) or 0)
+    notification_unread = int(get_unread_count(db, user_id) or 0)
     return {
         "inbox": serialize_inbox_items(db, inbox_rows, enrich=enrich),
         "notifications": serialize_notification_items(db, notification_rows, enrich=enrich),
-        "inboxUnread": count_user_inbox_unread(db, user_id),
-        "notificationUnread": int(get_unread_count(db, user_id) or 0),
+        "inboxUnread": inbox_unread,
+        "notificationUnread": notification_unread,
+        "totalUnread": get_bell_unread_count(db, user_id),
     }

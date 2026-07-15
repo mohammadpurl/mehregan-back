@@ -5,9 +5,22 @@ from app.core.database import get_db
 from app.constants.api_permissions import NOTIFICATIONS
 from app.dependencies.auth import require_any_permission
 from app.dependencies.pagination import ListQueryParams, get_list_params
-from app.services.notification_center import get_notification_center, get_notification_feed
+from app.services.notification_center import (
+    get_bell_unread_count,
+    get_notification_center,
+    get_notification_feed,
+)
 
 router = APIRouter(prefix="/notification-center")
+
+
+@router.get("/unread-count")
+def notification_center_unread_count(
+    db: Session = Depends(get_db),
+    user=Depends(require_any_permission(*NOTIFICATIONS)),
+):
+    """شمارش badge زنگ بدون دوبل‌شماری inbox+notification یکسان."""
+    return {"count": get_bell_unread_count(db, user.id)}
 
 
 @router.get("/feed")

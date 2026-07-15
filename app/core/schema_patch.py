@@ -57,6 +57,7 @@ _USER_PROFILE_COLUMNS = (
     ("last_name", "VARCHAR(100)"),
     ("national_id", "VARCHAR(10)"),
     ("father_name", "VARCHAR(100)"),
+    ("account_number", "VARCHAR(50)"),
     ("card_number", "VARCHAR(24)"),
     ("sheba_number", "VARCHAR(26)"),
     ("profile_pic", "VARCHAR(500)"),

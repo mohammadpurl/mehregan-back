@@ -21,6 +21,7 @@ class User(Base):
         String(10), unique=True, nullable=True, index=True
     )
     father_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     card_number: Mapped[str | None] = mapped_column(String(24), nullable=True)
     sheba_number: Mapped[str | None] = mapped_column(String(26), nullable=True)
     profile_pic: Mapped[str | None] = mapped_column(String(500), nullable=True)

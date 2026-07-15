@@ -44,6 +44,8 @@ class UserListItem(BaseModel):
     manager_name: str | None = None
     department_id: int | None = None
     department_name: str | None = None
+    account_number: str | None = None
+    accountNumber: str | None = None
     card_number: str | None = None
     cardNumber: str | None = None
     sheba_number: str | None = None

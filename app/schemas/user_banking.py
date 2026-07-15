@@ -2,15 +2,21 @@ import re
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
+_ACCOUNT_NUMBER_RE = re.compile(r"^\d{5,30}$")
 _CARD_NUMBER_RE = re.compile(r"^\d{16,19}$")
 _SHEBA_RE = re.compile(r"^IR\d{24}$", re.IGNORECASE)
 
 
 class UserBankingFieldsMixin(BaseModel):
-    """شماره کارت و شبا — اختیاری."""
+    """شماره حساب، کارت و شبا — اختیاری."""
 
     model_config = ConfigDict(populate_by_name=True)
 
+    account_number: str | None = Field(
+        None,
+        max_length=50,
+        validation_alias=AliasChoices("accountNumber", "account_number"),
+    )
     card_number: str | None = Field(
         None,
         max_length=32,
@@ -22,6 +28,18 @@ class UserBankingFieldsMixin(BaseModel):
         description="۲۴ رقم (با یا بدون IR) — پس از اعتبارسنجی به IR+24 رقم ذخیره می‌شود",
         validation_alias=AliasChoices("shebaNumber", "sheba_number"),
     )
+
+    @field_validator("account_number")
+    @classmethod
+    def validate_account_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.replace(" ", "").replace("-", "")
+        if not value:
+            return None
+        if not _ACCOUNT_NUMBER_RE.match(value):
+            raise ValueError("شماره حساب باید ۵ تا ۳۰ رقم باشد")
+        return value
 
     @field_validator("card_number")
     @classmethod

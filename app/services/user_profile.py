@@ -39,6 +39,7 @@ def get_user_profile(user: User, *, bust_avatar_cache: bool = False) -> dict:
     pic = user.profile_pic_url(cache_bust=cache_bust)
     card = getattr(user, "card_number", None)
     sheba = getattr(user, "sheba_number", None)
+    account = getattr(user, "account_number", None)
     return {
         "profile_version": 2,
         "id": user.id,
@@ -49,6 +50,8 @@ def get_user_profile(user: User, *, bust_avatar_cache: bool = False) -> dict:
         "last_name": user.last_name,
         "national_id": user.national_id,
         "father_name": user.father_name,
+        "account_number": account,
+        "accountNumber": account,
         "card_number": card,
         "cardNumber": card,
         "sheba_number": sheba,
@@ -161,6 +164,7 @@ _PROFILE_FIELDS = frozenset(
         "last_name",
         "national_id",
         "father_name",
+        "account_number",
         "card_number",
         "sheba_number",
     }
@@ -209,10 +213,12 @@ def update_user_profile(db: Session, user: User, payload: UserProfileUpdate) -> 
             )
 
     for key, value in data.items():
-        if key in ("card_number", "sheba_number"):
+        if key in ("account_number", "card_number", "sheba_number"):
             continue
         setattr(user, key, value)
 
+    if "account_number" in fields_set:
+        user.account_number = payload.account_number
     if "card_number" in fields_set:
         user.card_number = payload.card_number
     if "sheba_number" in fields_set:
@@ -224,11 +230,16 @@ def update_user_profile(db: Session, user: User, payload: UserProfileUpdate) -> 
     except Exception as exc:
         db.rollback()
         msg = str(exc).lower()
-        if "card_number" in msg or "sheba_number" in msg or "column" in msg:
+        if (
+            "account_number" in msg
+            or "card_number" in msg
+            or "sheba_number" in msg
+            or "column" in msg
+        ):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=(
-                    "ستون‌های card_number / sheba_number در دیتابیس وجود ندارند. "
+                    "ستون‌های account_number / card_number / sheba_number در دیتابیس وجود ندارند. "
                     "سرور را restart کنید یا: python scripts/apply_schema_patches.py"
                 ),
             ) from exc

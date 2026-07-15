@@ -76,6 +76,7 @@ def _build_users_query(
                 User.national_id.ilike(f"%{search}%"),
                 User.card_number.ilike(f"%{search}%"),
                 User.sheba_number.ilike(f"%{search}%"),
+                User.account_number.ilike(f"%{search}%"),
             )
         )
     return query, Manager, Role
@@ -136,6 +137,8 @@ def list_users(
                 "manager_name": _manager_display_name(manager),
                 "department_id": user.department_id,
                 "department_name": dept_names.get(user.department_id),
+                "account_number": getattr(user, "account_number", None),
+                "accountNumber": getattr(user, "account_number", None),
                 "card_number": user.card_number,
                 "cardNumber": user.card_number,
                 "sheba_number": user.sheba_number,
@@ -195,6 +198,7 @@ def create_user_admin(db: Session, payload: UserCreate) -> dict:
         mobile=payload.phone,
         first_name=payload.first_name.strip(),
         last_name=payload.last_name.strip(),
+        account_number=payload.account_number,
         card_number=payload.card_number,
         sheba_number=payload.sheba_number,
         is_active=payload.is_active,
@@ -277,6 +281,8 @@ def update_user_admin(db: Session, user_id: int, payload: UserUpdate) -> dict:
         user.first_name = payload.first_name.strip()
     if payload.last_name is not None:
         user.last_name = payload.last_name.strip()
+    if payload.account_number is not None:
+        user.account_number = payload.account_number or None
     if payload.card_number is not None:
         user.card_number = payload.card_number or None
     if payload.sheba_number is not None:

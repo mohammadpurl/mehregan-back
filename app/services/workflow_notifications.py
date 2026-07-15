@@ -107,6 +107,7 @@ def notify_workflow_next_step(db: Session, payload: dict) -> int | None:
         type="workflow",
         ref_id=instance_id,
         ref_type="workflow",
+        dedupe_unread=True,
     )
     try:
         asyncio.run(
