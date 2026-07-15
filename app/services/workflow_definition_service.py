@@ -5,7 +5,10 @@ from app.models.user import User
 from app.models.workflow_definition import WorkflowDefinition
 from app.services.query_utils import apply_search_filter, apply_sort
 from app.services.workflow_step_config import (
+    ROLE_POOL,
+    SUBMITTER_MANAGER,
     format_missing_role_assignee_error,
+    is_ceo_role_step,
     normalize_steps_config,
     resolve_role_id_for_step,
     resolve_step_assignee_user,
@@ -256,6 +259,8 @@ def assert_workflow_assignees_ready(
     """قبل از شروع گردش: هر مرحله باید assignee داشته باشد و مراحل متوالی متفاوت باشند."""
     preview = preview_assignees(db, ref_type, submitter_id=submitter_id)
     for item in preview:
+        if item.get("skipped_redundant"):
+            continue
         if not item.get("resolved_user_id"):
             role_id = item.get("role_id")
             if role_id is None:
@@ -267,8 +272,10 @@ def assert_workflow_assignees_ready(
                         "label": item.get("label"),
                         "role_aliases": item.get("role_aliases") or [],
                         "order": item.get("order"),
+                        "assignee_strategy": item.get("assignee_strategy"),
                     },
                     role_id,
+                    exclude_user_ids=item.get("exclude_user_ids") or None,
                 )
             )
         if item.get("duplicate_same_assignee"):
@@ -287,6 +294,7 @@ def preview_assignees(
     steps = get_steps_config(db, ref_type)
     preview: list[dict] = []
     prev_user_id: int | None = None
+    prev_strategy: str | None = None
     for step in steps:
         role_id = resolve_role_id_for_step(db, step)
         exclude = [prev_user_id] if prev_user_id is not None else []
@@ -297,9 +305,27 @@ def preview_assignees(
             submitter_id=submitter_id,
             exclude_user_ids=exclude,
         )
+        skipped_redundant = False
+        if resolved is None and exclude:
+            same_person = resolve_step_assignee_user(
+                db,
+                step,
+                role_id=role_id,
+                submitter_id=submitter_id,
+                exclude_user_ids=None,
+            )
+            if (
+                same_person
+                and same_person.id == prev_user_id
+                and (prev_strategy or "") == SUBMITTER_MANAGER
+                and is_ceo_role_step(step)
+            ):
+                # مدیر مستقیم همان تنها مدیرعامل است → مرحلهٔ مدیرعامل تکراری نیست
+                skipped_redundant = True
         resolved_id = resolved.id if resolved else None
         duplicate_same_person = (
-            prev_user_id is not None
+            not skipped_redundant
+            and prev_user_id is not None
             and resolved_id is not None
             and prev_user_id == resolved_id
         )
@@ -309,10 +335,15 @@ def preview_assignees(
                 "resolved_user_id": resolved_id,
                 "resolved_user_name": _user_display(resolved),
                 "duplicate_same_assignee": duplicate_same_person,
+                "skipped_redundant": skipped_redundant,
+                "exclude_user_ids": exclude,
             }
         )
+        if skipped_redundant:
+            continue
         if resolved_id is not None:
             prev_user_id = resolved_id
+            prev_strategy = step.get("assignee_strategy") or ROLE_POOL
     return preview
 
 

@@ -27,6 +27,13 @@ ASSIGNEE_STRATEGIES = frozenset(
 )
 WORKFLOW_STRATEGIES_UI = frozenset({ROLE_POOL, FIXED_USER})
 
+_CEO_ALIASES = frozenset({"ceo", "managing_director", "مدیرعامل"})
+
+
+def is_ceo_role_step(step_cfg: dict) -> bool:
+    aliases = {str(a).strip().lower() for a in (step_cfg.get("role_aliases") or [])}
+    return bool(aliases & _CEO_ALIASES)
+
 
 def _coerce_step_raw(raw: Any) -> Any:
     """Accept dict, legacy alias list, or Pydantic step model from request body."""
@@ -281,9 +288,41 @@ def _build_exclude_user_ids(
     return set(exclude_user_ids or [])
 
 
-def format_missing_role_assignee_error(db: Session, step: dict, role_id: int) -> str:
+def _active_users_with_roles(
+    db: Session,
+    role_ids: list[int],
+    *,
+    only_user_ids: set[int] | None = None,
+) -> list[User]:
+    if not role_ids:
+        return []
+    q = (
+        db.query(User)
+        .join(UserRole, UserRole.user_id == User.id)
+        .filter(
+            UserRole.role_id.in_(role_ids),
+            UserRole.is_active == True,  # noqa: E712
+            User.is_active == True,  # noqa: E712
+        )
+        .distinct()
+    )
+    if only_user_ids is not None:
+        if not only_user_ids:
+            return []
+        q = q.filter(User.id.in_(only_user_ids))
+    return q.all()
+
+
+def format_missing_role_assignee_error(
+    db: Session,
+    step: dict,
+    role_id: int,
+    *,
+    exclude_user_ids: list[int] | None = None,
+) -> str:
     from app.models.role import Role
 
+    _ = role_id
     label = step.get("label")
     if not label:
         aliases = step.get("role_aliases") or []
@@ -317,11 +356,34 @@ def format_missing_role_assignee_error(db: Session, step: dict, role_id: int) ->
         )
     aliases = ", ".join(step.get("role_aliases") or []) or role_name
     roles_hint = " یا ".join(dict.fromkeys(role_names)) if len(role_names) > 1 else role_name
+    excluded = set(exclude_user_ids or [])
+    excluded_holders = _active_users_with_roles(db, role_ids, only_user_ids=excluded)
+    if excluded_holders:
+        names = "، ".join((u.username or f"user#{u.id}") for u in excluded_holders)
+        return (
+            f"برای «{label}» کاربر فعالی با نقش «{roles_hint}» هست ({names})، "
+            "اما چون در مرحلهٔ قبل تأییدکننده بوده نمی‌تواند مرحلهٔ بعد هم باشد "
+            "(دو مرحلهٔ پشت‌سرهم نباید به یک نفر برسد). "
+            "یا مدیر مستقیم درخواست‌دهنده را به فرد دیگری تغییر دهید، "
+            "یا نقش ceo را علاوه بر این کاربر به یک نفر دیگر هم بدهید."
+        )
+    all_holders = _active_users_with_roles(db, role_ids)
+    if not all_holders:
+        ceo_hint = is_ceo_role_step(step)
+        tip = (
+            "در مدیریت → کاربران نقش با شناسه فنی «ceo» را به‌صورت فعال به کاربر بدهید "
+            "(managing_director / مدیرعامل هم قابل قبول است)."
+            if ceo_hint
+            else "در مدیریت → کاربران یکی از نقش‌های این مرحله را به حداقل یک کاربر فعال بدهید."
+        )
+        return (
+            f"برای «{label}» هیچ کاربر فعالی با نقش «{roles_hint}» یافت نشد "
+            f"(نقش‌های مجاز: {aliases}). {tip}"
+        )
+    names = "، ".join((u.username or f"user#{u.id}") for u in all_holders)
     return (
-        f"برای «{label}» هیچ کاربر فعالی با نقش «{roles_hint}» یافت نشد "
-        f"(نقش‌های مجاز: {aliases}). "
-        "در بخش مدیریت → کاربران، نقش ceo/مدیرعامل را به‌صورت فعال به کاربر اختصاص دهید؛ "
-        "اگر فقط «مدیر عامل (قدیمی)» فعال است، همان نقش ceo را فعال کنید."
+        f"برای «{label}» تخصیص تأییدکننده با نقش «{roles_hint}» ممکن نشد "
+        f"(کاربران دارای نقش: {names}). تعریف گردش‌کار را بررسی کنید."
     )
 
 

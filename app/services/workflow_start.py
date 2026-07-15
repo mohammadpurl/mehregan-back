@@ -9,7 +9,9 @@ from app.models.workflow_instance import WorkflowInstance
 from app.models.workflow_step import WorkflowStep
 from app.services.workflow_definition_service import get_steps_config
 from app.services.workflow_step_config import (
+    SUBMITTER_MANAGER,
     format_missing_role_assignee_error,
+    is_ceo_role_step,
     resolve_role_id_for_step,
     resolve_step_assignee_user,
 )
@@ -100,9 +102,38 @@ def start_workflow_instance(
             override_user_id=override,
             exclude_user_ids=exclude,
         )
+        if assignee is None and exclude:
+            # مدیر مستقیم = تنها مدیرعامل: مرحلهٔ تکراری مدیرعامل را رد کن
+            prev_cfg = steps_config[idx - 2] if idx >= 2 else None
+            same_person = resolve_step_assignee_user(
+                db,
+                step_cfg,
+                role_id=role_id,
+                submitter_id=submitter_id,
+                override_user_id=override,
+                exclude_user_ids=None,
+            )
+            if (
+                same_person
+                and same_person.id == assigned_user_ids[-1]
+                and prev_cfg
+                and (prev_cfg.get("assignee_strategy") or "") == SUBMITTER_MANAGER
+                and is_ceo_role_step(step_cfg)
+            ):
+                continue
+            db.rollback()
+            raise ValueError(
+                format_missing_role_assignee_error(
+                    db, step_cfg, role_id, exclude_user_ids=exclude
+                )
+            )
         if assignee is None:
             db.rollback()
-            raise ValueError(format_missing_role_assignee_error(db, step_cfg, role_id))
+            raise ValueError(
+                format_missing_role_assignee_error(
+                    db, step_cfg, role_id, exclude_user_ids=exclude
+                )
+            )
         if assigned_user_ids and assignee.id == assigned_user_ids[-1]:
             db.rollback()
             raise ValueError(
@@ -120,6 +151,10 @@ def start_workflow_instance(
         db.add(step)
         db.flush()
         created_steps.append(step)
+
+    if not created_steps:
+        db.rollback()
+        raise ValueError("هیچ مرحلهٔ قابل تخصیص برای گردش‌کار ساخته نشد")
 
     first_step = created_steps[0]
     db.commit()

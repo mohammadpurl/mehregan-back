@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
@@ -19,6 +19,16 @@ from app.services.inbox import create_inbox_item, mark_inbox_done_for_ad_hoc_tas
 from app.services.notification import create_notification
 from app.services.query_utils import apply_search_filter, apply_sort
 
+
+def _to_utc_naive(dt: datetime) -> datetime:
+    """تبدیل به datetime بدون timezone برای مقایسه/ذخیره (UTC)."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _due_in_future(due_at: datetime) -> bool:
+    return _to_utc_naive(due_at) > datetime.utcnow()
 
 def _user_display(user: User | None) -> str | None:
     if not user:
@@ -115,16 +125,17 @@ def create_ad_hoc_task(db: Session, *, user_id: int, payload: AdHocTaskCreate) -
         raise ValueError("گیرنده کار یافت نشد یا غیرفعال است")
     if payload.assignee_id == user_id:
         raise ValueError("گیرنده نمی‌تواند خودتان باشید")
-    if payload.due_at <= datetime.utcnow():
+    if not _due_in_future(payload.due_at):
         raise ValueError("مهلت انجام کار باید در آینده باشد")
 
+    due_at = _to_utc_naive(payload.due_at)
     task = AdHocTask(
         title=payload.title.strip(),
         description=(payload.description or "").strip() or None,
         created_by_id=user_id,
         current_assignee_id=payload.assignee_id,
         status=STATUS_OPEN,
-        due_at=payload.due_at,
+        due_at=due_at,
         sla_notified=False,
     )
     db.add(task)
@@ -288,10 +299,10 @@ def add_ad_hoc_task_step(
             raise ValueError("گیرنده یافت نشد")
         if payload.due_at is None:
             raise ValueError("مهلت انجام برای گیرنده بعدی الزامی است")
-        if payload.due_at <= datetime.utcnow():
+        if not _due_in_future(payload.due_at):
             raise ValueError("مهلت انجام کار باید در آینده باشد")
         task.current_assignee_id = assignee_id
-        task.due_at = payload.due_at
+        task.due_at = _to_utc_naive(payload.due_at)
         task.sla_notified = False
 
     task.updated_at = datetime.utcnow()
