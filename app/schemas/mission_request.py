@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.schemas.attachment import AttachmentOut
 
@@ -12,12 +12,19 @@ class MissionRequestCreate(BaseModel):
     reason: str = Field(..., min_length=1, max_length=8000)
     vehicle: str = Field(..., min_length=1, max_length=255)
     assignees_by_order: dict[str, int] | None = Field(
-        None, validation_alias="assigneesByOrder"
+        None, validation_alias=AliasChoices("assigneesByOrder", "assignees_by_order")
     )
 
 
 class MissionReportSubmit(BaseModel):
-    report_text: str = Field(..., min_length=1, max_length=20000, validation_alias="reportText")
+    model_config = ConfigDict(populate_by_name=True)
+
+    report_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=20000,
+        validation_alias=AliasChoices("reportText", "report_text"),
+    )
 
 
 class MissionRequestOut(BaseModel):
