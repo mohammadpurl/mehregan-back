@@ -59,6 +59,18 @@ class PettyCashOut(BaseModel):
     )
     total_expenses: float | None = Field(None, serialization_alias="totalExpenses")
     settled_at: datetime | None = Field(None, serialization_alias="settledAt")
+    sepidar_registered_at: datetime | None = Field(
+        None, serialization_alias="sepidarRegisteredAt"
+    )
+    sepidar_registered_by: int | None = Field(
+        None, serialization_alias="sepidarRegisteredBy"
+    )
+    sepidar_confirmed_at: datetime | None = Field(
+        None, serialization_alias="sepidarConfirmedAt"
+    )
+    sepidar_confirmed_by: int | None = Field(
+        None, serialization_alias="sepidarConfirmedBy"
+    )
     workflow_instance_id: int | None = Field(
         None, serialization_alias="workflowInstanceId"
     )

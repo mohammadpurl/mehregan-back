@@ -9,6 +9,8 @@ from app.constants.mission_request import (
     STATUS_COMPLETED,
     STATUS_PENDING,
     STATUS_REJECTED,
+    STATUS_REPORT_PENDING_APPROVAL,
+    WORKFLOW_REF_MISSION_REPORT,
 )
 from app.infrastructure.messaging.publisher import publish_event
 from app.models.mission_request import MissionRequest
@@ -37,13 +39,40 @@ from app.services.workflow_step_access import user_can_act_on_workflow_step
 def workflow_instance_for_mission(
     db: Session, mission_id: int
 ) -> WorkflowInstance | None:
+    """آخرین نمونهٔ فعال تأیید گزارش را ترجیح می‌دهد؛ وگرنه درخواست ماموریت."""
+    report = (
+        db.query(WorkflowInstance)
+        .filter(
+            WorkflowInstance.ref_type == WORKFLOW_REF_MISSION_REPORT,
+            WorkflowInstance.ref_id == mission_id,
+            WorkflowInstance.status.in_(("in_progress", "pending", "returned")),
+        )
+        .order_by(WorkflowInstance.id.desc())
+        .first()
+    )
+    if report:
+        return report
     return (
         db.query(WorkflowInstance)
         .filter(
-            WorkflowInstance.ref_type == REF_TYPE,
+            WorkflowInstance.ref_type.in_((REF_TYPE, WORKFLOW_REF_MISSION_REPORT)),
             WorkflowInstance.ref_id == mission_id,
         )
+        .order_by(WorkflowInstance.id.desc())
         .first()
+    )
+
+
+def _workflow_instances_for_mission(
+    db: Session, mission_id: int
+) -> list[WorkflowInstance]:
+    return (
+        db.query(WorkflowInstance)
+        .filter(
+            WorkflowInstance.ref_type.in_((REF_TYPE, WORKFLOW_REF_MISSION_REPORT)),
+            WorkflowInstance.ref_id == mission_id,
+        )
+        .all()
     )
 
 
@@ -149,6 +178,25 @@ def on_workflow_rejected(db: Session, mission_id: int) -> None:
     db.commit()
 
 
+def on_report_workflow_approved(db: Session, mission_id: int) -> None:
+    row = db.get(MissionRequest, mission_id)
+    if not row:
+        return
+    row.status = STATUS_COMPLETED
+    row.updated_at = datetime.utcnow()
+    db.commit()
+
+
+def on_report_workflow_rejected(db: Session, mission_id: int) -> None:
+    """رد کامل تأیید گزارش → امکان اصلاح و ارسال مجدد."""
+    row = db.get(MissionRequest, mission_id)
+    if not row:
+        return
+    row.status = STATUS_APPROVED
+    row.updated_at = datetime.utcnow()
+    db.commit()
+
+
 def submit_mission_report(
     db: Session,
     mission_id: int,
@@ -161,16 +209,42 @@ def submit_mission_report(
         raise ValueError("درخواست ماموریت یافت نشد")
     if row.requester_id != user_id:
         raise ValueError("فقط درخواست‌کننده می‌تواند گزارش ثبت کند")
+    if row.status == STATUS_REPORT_PENDING_APPROVAL:
+        raise ValueError("گزارش این ماموریت در حال تأیید است")
+    if row.status == STATUS_COMPLETED:
+        raise ValueError("گزارش این ماموریت قبلاً تأیید شده است")
     if row.status != STATUS_APPROVED:
         raise ValueError("فقط پس از تأیید نهایی می‌توانید گزارش ماموریت ثبت کنید")
-    if row.report_text:
-        raise ValueError("گزارش این ماموریت قبلاً ثبت شده است")
 
-    row.report_text = report_text.strip()
+    text = report_text.strip()
+    if not text:
+        raise ValueError("متن گزارش الزامی است")
+
+    row.report_text = text
     row.reported_at = datetime.utcnow()
-    row.status = STATUS_COMPLETED
+    row.status = STATUS_REPORT_PENDING_APPROVAL
     row.updated_at = datetime.utcnow()
     db.commit()
+    db.refresh(row)
+
+    assert_workflow_assignees_ready(
+        db,
+        WORKFLOW_REF_MISSION_REPORT,
+        submitter_id=row.requester_id,
+    )
+    wf_payload = {
+        "ref_type": WORKFLOW_REF_MISSION_REPORT,
+        "ref_id": row.id,
+        "submitter_id": row.requester_id,
+        "requester_id": row.requester_id,
+    }
+    try:
+        start_workflow_instance(db, wf_payload, sync_notify=True)
+    except ValueError:
+        row.status = STATUS_APPROVED
+        db.commit()
+        raise
+    publish_event("workflow.start", wf_payload)
     db.refresh(row)
     return _serialize(db, row)
 
@@ -182,11 +256,16 @@ def get_mission_request(db: Session, request_id: int, user) -> dict:
     if not user_can_access_mission_request_extended(db, user, row):
         from app.models.workflow_step import WorkflowStep
 
-        inst = workflow_instance_for_mission(db, request_id)
-        if not inst:
+        instances = _workflow_instances_for_mission(db, request_id)
+        if not instances:
             raise ValueError("access denied")
-        steps = db.query(WorkflowStep).filter_by(instance_id=inst.id).all()
-        if not any(user_can_act_on_workflow_step(user, st) for st in steps):
+        allowed = False
+        for inst in instances:
+            steps = db.query(WorkflowStep).filter_by(instance_id=inst.id).all()
+            if any(user_can_act_on_workflow_step(user, st) for st in steps):
+                allowed = True
+                break
+        if not allowed:
             raise ValueError("access denied")
     return _serialize(db, row)
 
@@ -195,7 +274,7 @@ def get_mission_request_by_workflow_instance(
     db: Session, instance_id: int, user
 ) -> dict:
     inst = db.get(WorkflowInstance, instance_id)
-    if not inst or inst.ref_type != REF_TYPE:
+    if not inst or inst.ref_type not in (REF_TYPE, WORKFLOW_REF_MISSION_REPORT):
         raise ValueError("درخواست ماموریت برای این نمونه workflow یافت نشد")
     return get_mission_request(db, inst.ref_id, user)
 
@@ -265,6 +344,7 @@ def delete_mission_request(db: Session, request_id: int, user_id: int) -> None:
     if row.status != STATUS_PENDING:
         raise ValueError("فقط درخواست در انتظار تأیید قابل حذف است")
     cancel_workflow_for_ref(db, REF_TYPE, request_id)
+    cancel_workflow_for_ref(db, WORKFLOW_REF_MISSION_REPORT, request_id)
     delete_all_for_entity(db, ENTITY_MISSION_REQUEST, request_id)
     db.delete(row)
     db.commit()

@@ -1,7 +1,13 @@
 from sqlalchemy.orm import Session
 
+from app.constants.petty_cash import WORKFLOW_REF_PETTY_CASH_SETTLEMENT
 from app.models.workflow_instance import WorkflowInstance
-from app.services.petty_cash import on_workflow_approved, on_workflow_rejected
+from app.services.petty_cash import (
+    on_settlement_workflow_approved,
+    on_settlement_workflow_rejected,
+    on_workflow_approved,
+    on_workflow_rejected,
+)
 
 
 def handle_workflow_approved(db: Session, payload: dict) -> None:
@@ -9,9 +15,12 @@ def handle_workflow_approved(db: Session, payload: dict) -> None:
     if not instance_id:
         return
     inst = db.get(WorkflowInstance, instance_id)
-    if not inst or inst.ref_type != "petty_cash":
+    if not inst:
         return
-    on_workflow_approved(db, inst.ref_id)
+    if inst.ref_type == "petty_cash":
+        on_workflow_approved(db, inst.ref_id)
+    elif inst.ref_type == WORKFLOW_REF_PETTY_CASH_SETTLEMENT:
+        on_settlement_workflow_approved(db, inst.ref_id)
 
 
 def handle_workflow_rejected(db: Session, payload: dict) -> None:
@@ -19,6 +28,9 @@ def handle_workflow_rejected(db: Session, payload: dict) -> None:
     if not instance_id:
         return
     inst = db.get(WorkflowInstance, instance_id)
-    if not inst or inst.ref_type != "petty_cash":
+    if not inst:
         return
-    on_workflow_rejected(db, inst.ref_id)
+    if inst.ref_type == "petty_cash":
+        on_workflow_rejected(db, inst.ref_id)
+    elif inst.ref_type == WORKFLOW_REF_PETTY_CASH_SETTLEMENT:
+        on_settlement_workflow_rejected(db, inst.ref_id)

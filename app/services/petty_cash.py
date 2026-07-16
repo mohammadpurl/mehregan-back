@@ -8,10 +8,12 @@ from app.constants.petty_cash import (
     EXPENSE_SOURCE_MANUAL,
     SETTLEMENT_NONE,
     SETTLEMENT_PENDING,
+    SETTLEMENT_PENDING_APPROVAL,
     SETTLEMENT_SETTLED,
     STATUS_APPROVED,
     STATUS_PENDING,
     STATUS_REJECTED,
+    WORKFLOW_REF_PETTY_CASH_SETTLEMENT,
 )
 from app.infrastructure.messaging.publisher import publish_event
 from app.models.petty_cash_expense import PettyCashExpenseLine
@@ -58,13 +60,44 @@ def _count_expense_lines_batch(db: Session, request_ids: list[int]) -> dict[int,
 def workflow_instance_for_petty_cash(
     db: Session, petty_cash_id: int
 ) -> WorkflowInstance | None:
+    """آخرین نمونهٔ فعال تأیید خرج را ترجیح می‌دهد؛ وگرنه درخواست تنخواه."""
+    settlement = (
+        db.query(WorkflowInstance)
+        .filter(
+            WorkflowInstance.ref_type == WORKFLOW_REF_PETTY_CASH_SETTLEMENT,
+            WorkflowInstance.ref_id == petty_cash_id,
+            WorkflowInstance.status.in_(("in_progress", "pending", "returned")),
+        )
+        .order_by(WorkflowInstance.id.desc())
+        .first()
+    )
+    if settlement:
+        return settlement
     return (
         db.query(WorkflowInstance)
         .filter(
-            WorkflowInstance.ref_type == "petty_cash",
+            WorkflowInstance.ref_type.in_(
+                ("petty_cash", WORKFLOW_REF_PETTY_CASH_SETTLEMENT)
+            ),
             WorkflowInstance.ref_id == petty_cash_id,
         )
+        .order_by(WorkflowInstance.id.desc())
         .first()
+    )
+
+
+def _workflow_instances_for_petty_cash(
+    db: Session, petty_cash_id: int
+) -> list[WorkflowInstance]:
+    return (
+        db.query(WorkflowInstance)
+        .filter(
+            WorkflowInstance.ref_type.in_(
+                ("petty_cash", WORKFLOW_REF_PETTY_CASH_SETTLEMENT)
+            ),
+            WorkflowInstance.ref_id == petty_cash_id,
+        )
+        .all()
     )
 
 
@@ -92,6 +125,11 @@ def check_eligibility(db: Session, requester_id: int) -> dict:
     if blocker.status == STATUS_PENDING:
         msg = (
             f"درخواست تنخواه شماره {blocker.id} هنوز در گردش تأیید است؛ "
+            "تا پایان آن نمی‌توانید درخواست جدید ثبت کنید."
+        )
+    elif blocker.settlement_status == SETTLEMENT_PENDING_APPROVAL:
+        msg = (
+            f"خرج تنخواه شماره {blocker.id} در حال تأیید مدیر / مدیر مالی / مدیرعامل است؛ "
             "تا پایان آن نمی‌توانید درخواست جدید ثبت کنید."
         )
     else:
@@ -155,6 +193,10 @@ def _serialize(
         "payer_company_account_id": row.payer_company_account_id,
         "total_expenses": float(row.total_expenses) if row.total_expenses is not None else None,
         "settled_at": row.settled_at,
+        "sepidar_registered_at": row.sepidar_registered_at,
+        "sepidar_registered_by": row.sepidar_registered_by,
+        "sepidar_confirmed_at": row.sepidar_confirmed_at,
+        "sepidar_confirmed_by": row.sepidar_confirmed_by,
         "workflow_instance_id": inst.id if inst else None,
         "expense_lines": lines,
         "created_at": row.created_at,
@@ -235,6 +277,25 @@ def on_workflow_rejected(db: Session, petty_cash_id: int) -> None:
     db.commit()
 
 
+def on_settlement_workflow_approved(db: Session, petty_cash_id: int) -> None:
+    row = db.get(PettyCashRequest, petty_cash_id)
+    if not row:
+        return
+    row.settlement_status = SETTLEMENT_SETTLED
+    row.settled_at = datetime.utcnow()
+    db.commit()
+
+
+def on_settlement_workflow_rejected(db: Session, petty_cash_id: int) -> None:
+    """رد کامل تأیید خرج → برگشت به امکان اصلاح و ارسال مجدد خرج."""
+    row = db.get(PettyCashRequest, petty_cash_id)
+    if not row:
+        return
+    row.settlement_status = SETTLEMENT_PENDING
+    row.settled_at = None
+    db.commit()
+
+
 def _get_owned_request(db: Session, request_id: int, user_id: int) -> PettyCashRequest:
     row = db.get(PettyCashRequest, request_id)
     if not row:
@@ -256,6 +317,8 @@ def _save_expense_lines(
         raise ValueError("فقط پس از تأیید و پرداخت تنخواه می‌توان جزئیات خرج را ثبت کرد")
     if row.settlement_status == SETTLEMENT_SETTLED:
         raise ValueError("این تنخواه قبلاً تسویه شده و قابل ویرایش نیست")
+    if row.settlement_status == SETTLEMENT_PENDING_APPROVAL:
+        raise ValueError("خرج این تنخواه در حال تأیید است و فعلاً قابل ویرایش نیست")
 
     if replace_existing:
         db.query(PettyCashExpenseLine).filter_by(
@@ -282,9 +345,29 @@ def _save_expense_lines(
         )
 
     row.total_expenses = total
-    row.settlement_status = SETTLEMENT_SETTLED
-    row.settled_at = datetime.utcnow()
+    row.settlement_status = SETTLEMENT_PENDING_APPROVAL
+    row.settled_at = None
     db.commit()
+    db.refresh(row)
+
+    assert_workflow_assignees_ready(
+        db,
+        WORKFLOW_REF_PETTY_CASH_SETTLEMENT,
+        submitter_id=row.requester_id,
+    )
+    wf_payload = {
+        "ref_type": WORKFLOW_REF_PETTY_CASH_SETTLEMENT,
+        "ref_id": row.id,
+        "submitter_id": row.requester_id,
+        "requester_id": row.requester_id,
+    }
+    try:
+        start_workflow_instance(db, wf_payload, sync_notify=True)
+    except ValueError:
+        row.settlement_status = SETTLEMENT_PENDING
+        db.commit()
+        raise
+    publish_event("workflow.start", wf_payload)
     db.refresh(row)
 
 
@@ -322,11 +405,16 @@ def get_petty_cash(db: Session, request_id: int, user) -> dict:
     if not user_can_access_petty_cash_extended(db, user, row):
         from app.models.workflow_step import WorkflowStep
 
-        inst = workflow_instance_for_petty_cash(db, request_id)
-        if not inst:
+        instances = _workflow_instances_for_petty_cash(db, request_id)
+        if not instances:
             raise ValueError("access denied")
-        steps = db.query(WorkflowStep).filter_by(instance_id=inst.id).all()
-        if not any(user_can_act_on_workflow_step(user, st) for st in steps):
+        allowed = False
+        for inst in instances:
+            steps = db.query(WorkflowStep).filter_by(instance_id=inst.id).all()
+            if any(user_can_act_on_workflow_step(user, st) for st in steps):
+                allowed = True
+                break
+        if not allowed:
             raise ValueError("access denied")
     return _serialize(db, row)
 
@@ -335,7 +423,7 @@ def get_petty_cash_by_workflow_instance(
     db: Session, instance_id: int, user
 ) -> dict:
     inst = db.get(WorkflowInstance, instance_id)
-    if not inst or inst.ref_type != "petty_cash":
+    if not inst or inst.ref_type not in ("petty_cash", WORKFLOW_REF_PETTY_CASH_SETTLEMENT):
         raise ValueError("درخواست تنخواه برای این نمونه workflow یافت نشد")
     return get_petty_cash(db, inst.ref_id, user)
 

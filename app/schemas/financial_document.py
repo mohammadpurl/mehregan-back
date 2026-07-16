@@ -36,6 +36,18 @@ class FinancialDocumentOut(BaseModel):
     finance_confirmed_at: datetime | None = Field(
         None, serialization_alias="financeConfirmedAt"
     )
+    sepidar_registered_at: datetime | None = Field(
+        None, serialization_alias="sepidarRegisteredAt"
+    )
+    sepidar_registered_by: int | None = Field(
+        None, serialization_alias="sepidarRegisteredBy"
+    )
+    sepidar_confirmed_at: datetime | None = Field(
+        None, serialization_alias="sepidarConfirmedAt"
+    )
+    sepidar_confirmed_by: int | None = Field(
+        None, serialization_alias="sepidarConfirmedBy"
+    )
     workflow_instance_id: int | None = Field(
         None, serialization_alias="workflowInstanceId"
     )

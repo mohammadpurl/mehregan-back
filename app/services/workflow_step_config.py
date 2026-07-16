@@ -35,6 +35,74 @@ def is_ceo_role_step(step_cfg: dict) -> bool:
     return bool(aliases & _CEO_ALIASES)
 
 
+def should_skip_redundant_step(
+    db: Session,
+    step: dict,
+    *,
+    role_id: int,
+    submitter_id: int | None,
+    override_user_id: int | None = None,
+    exclude_user_ids: list[int] | None = None,
+    prev_user_id: int | None = None,
+) -> bool:
+    """
+    اگر تأییدکنندهٔ مرحلهٔ قبل تنها کسی باشد که نقش این مرحله را دارد،
+    مرحله را تکراری بدان و رد کن (مثلاً مدیر مستقیم = تنها مدیرعامل/super-admin).
+
+    ترجیح جدید: معمولاً هر دو مرحله ساخته می‌شوند و در approve با auto-skip
+    یک‌بار تأیید می‌شوند؛ این تابع برای سازگاری نگه داشته شده است.
+    """
+    if not exclude_user_ids and not prev_user_id:
+        return False
+    exclude = list(exclude_user_ids or [])
+    if prev_user_id is not None and prev_user_id not in exclude:
+        exclude.append(prev_user_id)
+    if not exclude:
+        return False
+
+    with_exclude = resolve_step_assignee_user(
+        db,
+        step,
+        role_id=role_id,
+        submitter_id=submitter_id,
+        override_user_id=override_user_id,
+        exclude_user_ids=exclude,
+    )
+    if with_exclude is not None:
+        return False
+
+    without_exclude = resolve_step_assignee_user(
+        db,
+        step,
+        role_id=role_id,
+        submitter_id=submitter_id,
+        override_user_id=override_user_id,
+        exclude_user_ids=None,
+    )
+    return without_exclude is not None and without_exclude.id in set(exclude)
+
+
+def should_skip_missing_manager_step(
+    db: Session,
+    step: dict,
+    *,
+    submitter_id: int | None,
+) -> bool:
+    """
+    مرحلهٔ submitter_manager وقتی مدیر مستقیم ثبت نشده/غیرفعال است رد می‌شود
+    (مثلاً مدیرعامل که manager_id ندارد) تا گردش با مراحل بعدی ادامه یابد.
+    """
+    strategy = (step.get("assignee_strategy") or ROLE_POOL).strip().lower()
+    if strategy != SUBMITTER_MANAGER:
+        return False
+    if submitter_id is None:
+        return True
+    from app.services.org import get_user_manager
+
+    manager = get_user_manager(db, int(submitter_id))
+    return manager is None or not manager.is_active
+
+
 def _coerce_step_raw(raw: Any) -> Any:
     """Accept dict, legacy alias list, or Pydantic step model from request body."""
     if hasattr(raw, "model_dump"):
@@ -319,6 +387,7 @@ def format_missing_role_assignee_error(
     role_id: int,
     *,
     exclude_user_ids: list[int] | None = None,
+    submitter_id: int | None = None,
 ) -> str:
     from app.models.role import Role
 
@@ -345,10 +414,7 @@ def format_missing_role_assignee_error(
             "در تعریف گردش‌کار، استراتژی «شخص مشخص» و یک کاربر را انتخاب کنید."
         )
     if strategy == SUBMITTER_MANAGER:
-        return (
-            f"برای «{label}» مدیر مستقیم درخواست‌دهنده در سیستم ثبت نشده یا غیرفعال است. "
-            "در مدیریت → کاربران، فیلد «مدیر مستقیم» را برای کاربر درخواست‌دهنده تنظیم کنید."
-        )
+        return _format_missing_manager_error(db, label=label, submitter_id=submitter_id)
     if strategy == DEPARTMENT_HEAD:
         return (
             f"برای «{label}» مسئول واحد سازمانی درخواست‌دهنده یافت نشد. "
@@ -384,6 +450,70 @@ def format_missing_role_assignee_error(
     return (
         f"برای «{label}» تخصیص تأییدکننده با نقش «{roles_hint}» ممکن نشد "
         f"(کاربران دارای نقش: {names}). تعریف گردش‌کار را بررسی کنید."
+    )
+
+
+def _user_label(user: User | None) -> str:
+    if not user:
+        return "کاربر"
+    parts = [user.first_name, user.last_name]
+    name = " ".join(p.strip() for p in parts if p and str(p).strip())
+    if name and user.username:
+        return f"{name} ({user.username})"
+    return name or user.username or f"user#{user.id}"
+
+
+def _format_missing_manager_error(
+    db: Session,
+    *,
+    label: str,
+    submitter_id: int | None,
+) -> str:
+    """پیام دقیق وقتی استراتژی submitter_manager به‌خاطر نبودن/غیرفعال بودن manager_id شکست می‌خورد."""
+    how_to_fix = (
+        "از مسیر مدیریت → کاربران، کاربر درخواست‌دهنده را باز کنید و فیلد «مدیر مستقیم» را "
+        "روی یک کاربر فعال تنظیم کنید؛ سپس دوباره درخواست را ثبت کنید."
+    )
+    if submitter_id is None:
+        return (
+            f"برای «{label}» شناسهٔ درخواست‌دهنده مشخص نیست؛ "
+            "نمی‌توان مدیر مستقیم را پیدا کرد. " + how_to_fix
+        )
+
+    submitter = db.get(User, submitter_id)
+    if not submitter:
+        return (
+            f"برای «{label}» درخواست‌دهنده (id={submitter_id}) در سیستم یافت نشد. "
+            + how_to_fix
+        )
+
+    who = _user_label(submitter)
+    if not submitter.manager_id:
+        return (
+            f"برای «{label}» کاربر «{who}» فیلد «مدیر مستقیم» ندارد "
+            f"(users.manager_id خالی است). "
+            "بدون تعیین مدیر مستقیم، این مرحلهٔ گردش‌کار قابل شروع نیست. "
+            + how_to_fix
+        )
+
+    manager = db.get(User, submitter.manager_id)
+    if not manager:
+        return (
+            f"برای «{label}» مدیر مستقیم ثبت‌شده برای «{who}» "
+            f"(manager_id={submitter.manager_id}) در سیستم وجود ندارد. "
+            + how_to_fix
+        )
+    if not manager.is_active:
+        mgr = _user_label(manager)
+        return (
+            f"برای «{label}» مدیر مستقیم «{who}» یعنی «{mgr}» غیرفعال است. "
+            "مدیر را فعال کنید یا مدیر مستقیم دیگری برای درخواست‌دهنده انتخاب کنید. "
+            + how_to_fix
+        )
+
+    return (
+        f"برای «{label}» تخصیص مدیر مستقیم برای «{who}» ممکن نشد. "
+        + how_to_fix
     )
 
 

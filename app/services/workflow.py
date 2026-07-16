@@ -87,6 +87,7 @@ def approve_step(
     payer_account: str | None = None,
     payment_method: str | None = None,
     payment_executed: bool = False,
+    sepidar_confirmed: bool = False,
 ):
     terms = None
     if (
@@ -126,12 +127,15 @@ def approve_step(
         try_complete_operational_from_inbox,
     )
 
-    from app.constants.payment_order import WORKFLOW_REF_PAYMENT_ORDER
-    from app.services.payment_order_workflow import (
-        advance_workflow_after_step as po_advance_workflow_after_step,
-        assert_can_approve_pending_step as po_assert_can_approve,
-        try_complete_operational_from_inbox as po_try_complete_operational,
+    from app.services.financial_workflow import (
+        advance_workflow_after_step as fin_advance_workflow_after_step,
+        apply_sepidar_confirm_on_entity,
+        assert_can_approve_pending_step as fin_assert_can_approve,
+        is_financial_ref_type,
+        step_action_for_order as fin_step_action_for_order,
+        try_complete_operational_from_inbox as fin_try_complete_operational,
     )
+    from app.constants.financial_workflow import CONFIRM_SEPIDAR_ACTIONS
 
     if instance and instance.ref_type == WORKFLOW_REF_PURCHASE:
         if try_complete_operational_from_inbox(db, instance, step, user):
@@ -140,16 +144,40 @@ def approve_step(
             db, instance, step, payment_method=payment_method
         )
 
-    if instance and instance.ref_type == WORKFLOW_REF_PAYMENT_ORDER:
-        if po_try_complete_operational(
+    if instance and is_financial_ref_type(instance.ref_type):
+        if fin_try_complete_operational(
             db, instance, step, user, payment_executed=payment_executed
         ):
             return
-        po_assert_can_approve(db, instance, step, payment_executed=payment_executed)
+        fin_assert_can_approve(
+            db,
+            instance,
+            step,
+            payment_executed=payment_executed,
+            sepidar_confirmed=sepidar_confirmed,
+        )
+
+    completed_action = (
+        fin_step_action_for_order(db, instance.ref_type, step.order)
+        if instance and is_financial_ref_type(instance.ref_type)
+        else None
+    )
 
     _assert_can_approve(step, user)
     _complete_step(db, step, user, auto_skipped=False, comment=comment)
     mark_inbox_done_for_workflow(db, instance_id, user_id=user.id)
+
+    if (
+        instance
+        and is_financial_ref_type(instance.ref_type)
+        and completed_action in CONFIRM_SEPIDAR_ACTIONS
+    ):
+        apply_sepidar_confirm_on_entity(
+            db,
+            ref_type=instance.ref_type,
+            ref_id=int(instance.ref_id),
+            user=user,
+        )
 
     if instance and instance.ref_type == "procurement_proforma":
         if not payment_method or not str(payment_method).strip():
@@ -167,8 +195,8 @@ def approve_step(
         )
         return
 
-    if instance and instance.ref_type == WORKFLOW_REF_PAYMENT_ORDER:
-        po_advance_workflow_after_step(
+    if instance and is_financial_ref_type(instance.ref_type):
+        fin_advance_workflow_after_step(
             db,
             instance_id=instance_id,
             completed_order=step.order,
@@ -212,7 +240,7 @@ def approve_step(
         if user_can_act_on_workflow_step(user, next_step):
             if (
                 instance
-                and instance.ref_type in ("payment_request", WORKFLOW_REF_PAYMENT_ORDER)
+                and instance.ref_type in ("payment_request", "payment_order")
                 and step_is_financial(db, instance, next_step)
             ):
                 pr = db.get(PaymentRequest, instance.ref_id)
@@ -253,7 +281,7 @@ def reject_step(
     user,
     *,
     comment: str | None = None,
-    return_to: str = "requester",
+    return_to: str = "previous",
 ):
     from app.services.workflow_reject import reject_step as _reject_with_return
 

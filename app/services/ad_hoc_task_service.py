@@ -75,7 +75,46 @@ def _user_participated_subquery(user_id: int):
     )
 
 
-def user_can_access_task(db: Session, task: AdHocTask, user_id: int) -> bool:
+_CEO_ALL_VIEW_ROLES = frozenset(
+    {
+        "ceo",
+        "managing_director",
+        "مدیرعامل",
+        "admin",
+        "super-admin",
+        "system_admin",
+    }
+)
+
+
+def _resolve_user(db: Session, user: User | int) -> User | None:
+    if isinstance(user, User):
+        return user
+    return db.get(User, int(user))
+
+
+def user_can_view_all_ad_hoc_tasks(db: Session, user: User | int) -> bool:
+    """مدیرعامل و دارندگان workflow.all.read همه کارهای پیش‌بینی‌نشده را می‌بینند."""
+    from app.services.permission import user_has_permission_db
+
+    user_obj = _resolve_user(db, user)
+    if not user_obj:
+        return False
+    if user_has_permission_db(db, user_obj.id, "workflow.all.read"):
+        return True
+    if user_has_permission_db(db, user_obj.id, "admin.manage"):
+        return True
+    names = {r.name.strip().lower() for r in user_obj.get_roles() if r and r.name}
+    return bool(names & _CEO_ALL_VIEW_ROLES)
+
+
+def user_can_access_task(db: Session, task: AdHocTask, user: User | int) -> bool:
+    user_obj = _resolve_user(db, user)
+    if not user_obj:
+        return False
+    if user_can_view_all_ad_hoc_tasks(db, user_obj):
+        return True
+    user_id = user_obj.id
     if task.created_by_id == user_id or task.current_assignee_id == user_id:
         return True
     return (
@@ -163,13 +202,17 @@ def create_ad_hoc_task(db: Session, *, user_id: int, payload: AdHocTaskCreate) -
     return get_ad_hoc_task_detail(db, task.id, user_id)
 
 
-def _list_query(db: Session, user_id: int, scope: str | None):
+def _list_query(db: Session, user: User, scope: str | None):
     query = db.query(AdHocTask)
     scope_norm = (scope or "all").strip().lower()
+    user_id = user.id
     if scope_norm == "mine":
         query = query.filter(AdHocTask.created_by_id == user_id)
     elif scope_norm == "assigned":
         query = query.filter(AdHocTask.current_assignee_id == user_id)
+    elif scope_norm == "all" and user_can_view_all_ad_hoc_tasks(db, user):
+        # مدیرعامل / مشاهده سراسری: بدون فیلتر شخصی
+        return query
     else:
         query = query.filter(
             or_(
@@ -184,7 +227,7 @@ def _list_query(db: Session, user_id: int, scope: str | None):
 def list_ad_hoc_tasks(
     db: Session,
     *,
-    user_id: int,
+    user: User,
     scope: str | None = None,
     offset: int = 0,
     limit: int = 20,
@@ -192,7 +235,7 @@ def list_ad_hoc_tasks(
     sort_order: str = "desc",
     search: str | None = None,
 ) -> list[dict]:
-    query = _list_query(db, user_id, scope)
+    query = _list_query(db, user, scope)
     query = apply_search_filter(query, AdHocTask, search, ["title", "description", "status"])
     query = apply_sort(query, AdHocTask, sort_by, sort_order)
     rows = query.offset(offset).limit(limit).all()
@@ -218,20 +261,20 @@ def list_ad_hoc_tasks(
 def count_ad_hoc_tasks(
     db: Session,
     *,
-    user_id: int,
+    user: User,
     scope: str | None = None,
     search: str | None = None,
 ) -> int:
-    query = _list_query(db, user_id, scope)
+    query = _list_query(db, user, scope)
     query = apply_search_filter(query, AdHocTask, search, ["title", "description", "status"])
     return int(query.with_entities(func.count(AdHocTask.id)).scalar() or 0)
 
 
-def get_ad_hoc_task_detail(db: Session, task_id: int, user_id: int) -> dict:
+def get_ad_hoc_task_detail(db: Session, task_id: int, user: User | int) -> dict:
     task = db.get(AdHocTask, task_id)
     if not task:
         raise ValueError("کار یافت نشد")
-    if not user_can_access_task(db, task, user_id):
+    if not user_can_access_task(db, task, user):
         raise ValueError("دسترسی به این کار مجاز نیست")
 
     creator = db.get(User, task.created_by_id)

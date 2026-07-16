@@ -188,6 +188,7 @@ def approve(
             payer_account=payload.payer_account,
             payment_method=payload.payment_method,
             payment_executed=payload.payment_executed,
+            sepidar_confirmed=payload.sepidar_confirmed,
         )
     except ValueError as err:
         raise_from_value_error(err)

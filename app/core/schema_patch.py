@@ -322,6 +322,19 @@ def ensure_payment_request_schema(engine) -> None:
                 "REFERENCES users(id)"
             )
         )
+        conn.execute(
+            text(
+                "ALTER TABLE payment_requests "
+                "ADD COLUMN IF NOT EXISTS sepidar_confirmed_at TIMESTAMP"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE payment_requests "
+                "ADD COLUMN IF NOT EXISTS sepidar_confirmed_by INTEGER "
+                "REFERENCES users(id)"
+            )
+        )
         logger.info(
             "Ensured payment_requests loan/advance/counterparty/payment_method columns"
         )
@@ -549,6 +562,20 @@ def ensure_petty_cash_schema(engine) -> None:
             )
             logger.info("Created petty_cash_expense_lines table")
 
+        for col, ddl in (
+            ("sepidar_registered_at", "TIMESTAMP"),
+            ("sepidar_registered_by", "INTEGER REFERENCES users(id)"),
+            ("sepidar_confirmed_at", "TIMESTAMP"),
+            ("sepidar_confirmed_by", "INTEGER REFERENCES users(id)"),
+        ):
+            conn.execute(
+                text(
+                    f"ALTER TABLE petty_cash_requests "
+                    f"ADD COLUMN IF NOT EXISTS {col} {ddl}"
+                )
+            )
+        logger.info("Ensured petty_cash_requests sepidar columns")
+
 
 def ensure_financial_document_schema(engine) -> None:
     if engine.dialect.name != "postgresql":
@@ -587,6 +614,20 @@ def ensure_financial_document_schema(engine) -> None:
                 )
             )
             logger.info("Created financial_documents table")
+
+        for col, ddl in (
+            ("sepidar_registered_at", "TIMESTAMP"),
+            ("sepidar_registered_by", "INTEGER REFERENCES users(id)"),
+            ("sepidar_confirmed_at", "TIMESTAMP"),
+            ("sepidar_confirmed_by", "INTEGER REFERENCES users(id)"),
+        ):
+            conn.execute(
+                text(
+                    f"ALTER TABLE financial_documents "
+                    f"ADD COLUMN IF NOT EXISTS {col} {ddl}"
+                )
+            )
+        logger.info("Ensured financial_documents sepidar columns")
 
 
 def ensure_procurement_schema(engine) -> None:

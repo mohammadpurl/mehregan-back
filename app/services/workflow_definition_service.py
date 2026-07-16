@@ -1,94 +1,28 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.constants.financial_workflow import UNIFIED_FINANCIAL_STEPS
+from app.constants.mission_request import MISSION_REPORT_STEPS
+from app.constants.petty_cash import PETTY_CASH_SETTLEMENT_STEPS
 from app.models.user import User
 from app.models.workflow_definition import WorkflowDefinition
 from app.services.query_utils import apply_search_filter, apply_sort
 from app.services.workflow_step_config import (
-    ROLE_POOL,
-    SUBMITTER_MANAGER,
     format_missing_role_assignee_error,
-    is_ceo_role_step,
     normalize_steps_config,
     resolve_role_id_for_step,
     resolve_step_assignee_user,
     serialize_step_for_api,
+    should_skip_missing_manager_step,
 )
+
+_UNIFIED = list(UNIFIED_FINANCIAL_STEPS)
 
 DEFAULT_ROLE_STEPS: dict[str, list[list[str]]] = {
     "workflow_form": [["manager", "project_manager", "مدیر پروژه"]],
-    "payment_request": [
-        {
-            "order": 1,
-            "label": "تأیید مدیر مستقیم",
-            "role_aliases": ["manager", "project_manager", "مدیر مستقیم"],
-            "assignee_strategy": "role_pool",
-        },
-        {
-            "order": 2,
-            "label": "تأیید مدیر مالی",
-            "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-            "assignee_strategy": "role_pool",
-        },
-    ],
-    "payment_order": [
-        {
-            "order": 1,
-            "label": "تأیید مدیر واحد",
-            "role_aliases": ["manager", "project_manager", "مدیر واحد", "مدیر مستقیم"],
-            "assignee_strategy": "submitter_manager",
-            "step_action": "approval",
-        },
-        {
-            "order": 2,
-            "label": "تأیید مدیر مالی",
-            "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-            "assignee_strategy": "role_pool",
-            "step_action": "approval",
-        },
-        {
-            "order": 3,
-            "label": "تأیید برداشت — مدیرعامل",
-            "role_aliases": ["ceo", "managing_director", "مدیرعامل"],
-            "assignee_strategy": "role_pool",
-            "step_action": "approval",
-        },
-        {
-            "order": 4,
-            "label": "ثبت انجام پرداخت — کارشناس مالی",
-            "role_aliases": [
-                "finance_manager",
-                "accountant",
-                "finance_officer",
-                "کارشناس مالی",
-            ],
-            "assignee_strategy": "role_pool",
-            "step_action": "mark_payment",
-        },
-        {
-            "order": 5,
-            "label": "تأیید نهایی — مدیر مالی",
-            "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-            "assignee_strategy": "role_pool",
-            "step_action": "final_payment_approval",
-        },
-    ],
-    "financial_document": [
-        {
-            "order": 1,
-            "label": "تأیید مدیرعامل",
-            "role_aliases": ["ceo", "managing_director", "مدیرعامل"],
-            "assignee_strategy": "role_pool",
-            "step_action": "approval",
-        },
-        {
-            "order": 2,
-            "label": "تأیید نهایی — مدیر مالی",
-            "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-            "assignee_strategy": "role_pool",
-            "step_action": "final_approval",
-        },
-    ],
+    "payment_request": _UNIFIED,
+    "payment_order": _UNIFIED,
+    "financial_document": _UNIFIED,
     "warehouse_form": [
         ["warehouse_manager", "warehouse", "مسئول انبار"],
         ["finance_manager", "accountant", "مدیر مالی"],
@@ -170,15 +104,8 @@ DEFAULT_ROLE_STEPS: dict[str, list[list[str]]] = {
             "assignee_strategy": "role_pool",
         },
     ],
-    # تنخواه: فقط اگر در ادمین تعریف نشده باشد — بدون پیش‌فرض ثابت مدیرعامل
-    "petty_cash": [
-        {
-            "order": 1,
-            "label": "تأیید مدیر مالی",
-            "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-            "assignee_strategy": "role_pool",
-        },
-    ],
+    "petty_cash": _UNIFIED,
+    "petty_cash_settlement": list(PETTY_CASH_SETTLEMENT_STEPS),
     "mission_request": [
         {
             "order": 1,
@@ -193,6 +120,7 @@ DEFAULT_ROLE_STEPS: dict[str, list[list[str]]] = {
             "assignee_strategy": "role_pool",
         },
     ],
+    "mission_report": list(MISSION_REPORT_STEPS),
 }
 
 
@@ -256,11 +184,15 @@ def assert_workflow_assignees_ready(
     *,
     submitter_id: int | None,
 ) -> None:
-    """قبل از شروع گردش: هر مرحله باید assignee داشته باشد و مراحل متوالی متفاوت باشند."""
+    """قبل از شروع گردش: هر مرحلهٔ غیرردشده باید assignee داشته باشد."""
     preview = preview_assignees(db, ref_type, submitter_id=submitter_id)
-    for item in preview:
-        if item.get("skipped_redundant"):
-            continue
+    pending = [item for item in preview if not item.get("skipped_redundant")]
+    if not pending:
+        raise ValueError(
+            "هیچ مرحلهٔ قابل تخصیص برای این گردش‌کار باقی نماند. "
+            "تعریف workflow را بررسی کنید."
+        )
+    for item in pending:
         if not item.get("resolved_user_id"):
             role_id = item.get("role_id")
             if role_id is None:
@@ -275,13 +207,9 @@ def assert_workflow_assignees_ready(
                         "assignee_strategy": item.get("assignee_strategy"),
                     },
                     role_id,
-                    exclude_user_ids=item.get("exclude_user_ids") or None,
+                    exclude_user_ids=None,
+                    submitter_id=submitter_id,
                 )
-            )
-        if item.get("duplicate_same_assignee"):
-            raise ValueError(
-                "دو مرحلهٔ تأیید به یک نفر اختصاص یافته‌اند؛ "
-                "نقش‌های این گردش (مثلاً مدیر مالی و مدیرعامل) باید به افراد مختلف داده شوند."
             )
 
 
@@ -293,57 +221,41 @@ def preview_assignees(
 ) -> list[dict]:
     steps = get_steps_config(db, ref_type)
     preview: list[dict] = []
-    prev_user_id: int | None = None
-    prev_strategy: str | None = None
     for step in steps:
         role_id = resolve_role_id_for_step(db, step)
-        exclude = [prev_user_id] if prev_user_id is not None else []
+        if should_skip_missing_manager_step(db, step, submitter_id=submitter_id):
+            preview.append(
+                {
+                    **serialize_step_for_api(step, role_id=role_id),
+                    "resolved_user_id": None,
+                    "resolved_user_name": None,
+                    "duplicate_same_assignee": False,
+                    "skipped_redundant": True,
+                    "exclude_user_ids": [],
+                    "skip_reason": "missing_manager",
+                }
+            )
+            continue
+
+        # بدون exclude تا همان نفر بتواند چند مرحلهٔ پشت‌سرهم را بگیرد
         resolved = resolve_step_assignee_user(
             db,
             step,
             role_id=role_id,
             submitter_id=submitter_id,
-            exclude_user_ids=exclude,
+            exclude_user_ids=None,
         )
-        skipped_redundant = False
-        if resolved is None and exclude:
-            same_person = resolve_step_assignee_user(
-                db,
-                step,
-                role_id=role_id,
-                submitter_id=submitter_id,
-                exclude_user_ids=None,
-            )
-            if (
-                same_person
-                and same_person.id == prev_user_id
-                and (prev_strategy or "") == SUBMITTER_MANAGER
-                and is_ceo_role_step(step)
-            ):
-                # مدیر مستقیم همان تنها مدیرعامل است → مرحلهٔ مدیرعامل تکراری نیست
-                skipped_redundant = True
         resolved_id = resolved.id if resolved else None
-        duplicate_same_person = (
-            not skipped_redundant
-            and prev_user_id is not None
-            and resolved_id is not None
-            and prev_user_id == resolved_id
-        )
         preview.append(
             {
                 **serialize_step_for_api(step, role_id=role_id),
                 "resolved_user_id": resolved_id,
                 "resolved_user_name": _user_display(resolved),
-                "duplicate_same_assignee": duplicate_same_person,
-                "skipped_redundant": skipped_redundant,
-                "exclude_user_ids": exclude,
+                "duplicate_same_assignee": False,
+                "skipped_redundant": False,
+                "exclude_user_ids": [],
             }
         )
-        if skipped_redundant:
-            continue
-        if resolved_id is not None:
-            prev_user_id = resolved_id
-            prev_strategy = step.get("assignee_strategy") or ROLE_POOL
     return preview
 
 

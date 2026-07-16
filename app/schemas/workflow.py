@@ -10,9 +10,9 @@ class WorkflowRejectRequest(BaseModel):
 
     comment: str = Field(..., min_length=1, max_length=2000)
     return_to: str = Field(
-        "requester",
+        "previous",
         alias="returnTo",
-        description="previous | requester",
+        description="previous | requester — در عمل اگر مرحله قبل باشد همیشه previous",
     )
 
 
@@ -57,5 +57,10 @@ class WorkflowApproveRequest(BaseModel):
     payment_executed: bool = Field(
         False,
         validation_alias="paymentExecuted",
-        description="مرحله ثبت پرداخت: پرداخت انجام شد",
+        description="مرحله کارشناس مالی: ثبت در سپیدار انجام شد",
+    )
+    sepidar_confirmed: bool = Field(
+        False,
+        validation_alias="sepidarConfirmed",
+        description="مرحله سرپرست مالی: تأیید ثبت در سپیدار",
     )

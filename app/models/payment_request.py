@@ -46,5 +46,10 @@ class PaymentRequest(Base):
     payment_marked_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+    # تأیید سرپرست مالی: بررسی ثبت در سپیدار
+    sepidar_confirmed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    sepidar_confirmed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)

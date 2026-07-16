@@ -64,13 +64,18 @@ try {
     Invoke-BackendScript "seed_rbac_if_empty.py" "scripts/seed_rbac_if_empty.py"
 }
 
+Invoke-BackendScript "ensure_financial_workflow_setup.py" `
+    "scripts/ensure_financial_workflow_setup.py" "--ensure-roles"
+
 $workflowScripts = @(
     "scripts/ensure_procurement_workflow_setup.py",
     "scripts/ensure_payment_workflow_setup.py",
     "scripts/ensure_petty_cash_workflow_setup.py",
     "scripts/ensure_payment_order_workflow_setup.py",
     "scripts/seed_financial_document_workflow.py",
-    "scripts/seed_mission_request_workflow.py"
+    "scripts/seed_petty_cash_settlement_workflow.py",
+    "scripts/seed_mission_request_workflow.py",
+    "scripts/seed_mission_report_workflow.py"
 )
 foreach ($script in $workflowScripts) {
     Invoke-BackendScript $script $script

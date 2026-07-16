@@ -26,6 +26,12 @@ class WorkflowStepConfig(BaseModel):
     )
     label: str | None = Field(None, max_length=255)
     order: int | None = None
+    step_action: str | None = Field(
+        None,
+        max_length=80,
+        validation_alias=AliasChoices("stepAction", "step_action"),
+        description="اکشن کسب‌وکار مرحله (مثلاً approve_proforma)",
+    )
 
     @field_validator("assignee_strategy")
     @classmethod

@@ -57,6 +57,12 @@ class PaymentRequestOut(BaseModel):
     payment_order_kind: str | None = Field(None, serialization_alias="paymentOrderKind")
     payment_marked_at: datetime | None = Field(None, serialization_alias="paymentMarkedAt")
     payment_marked_by: int | None = Field(None, serialization_alias="paymentMarkedBy")
+    sepidar_confirmed_at: datetime | None = Field(
+        None, serialization_alias="sepidarConfirmedAt"
+    )
+    sepidar_confirmed_by: int | None = Field(
+        None, serialization_alias="sepidarConfirmedBy"
+    )
     status: str
     created_at: datetime | None = Field(None, serialization_alias="createdAt")
     workflow_instance_id: int | None = Field(

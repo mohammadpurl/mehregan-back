@@ -27,20 +27,9 @@ from app.services.workflow_step_config import (
     resolve_step_assignee_user,
 )
 
-PAYMENT_REQUEST_STEPS = [
-    {
-        "order": 1,
-        "label": "تأیید مدیر مستقیم",
-        "role_aliases": ["manager", "project_manager", "مدیر پروژه", "مدیر مستقیم"],
-        "assignee_strategy": "submitter_manager",
-    },
-    {
-        "order": 2,
-        "label": "تأیید مدیر مالی",
-        "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-        "assignee_strategy": "role_pool",
-    },
-]
+from app.constants.financial_workflow import UNIFIED_FINANCIAL_STEPS
+
+PAYMENT_REQUEST_STEPS = list(UNIFIED_FINANCIAL_STEPS)
 
 
 def ensure_finance_role(db, finance_user_id: int | None) -> int | None:

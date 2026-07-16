@@ -304,7 +304,7 @@ def assert_user_can_access_attachment(db: Session, user, att: Attachment) -> Non
         from app.models.ad_hoc_task import AdHocTask
         from app.services.ad_hoc_task_service import user_can_access_task
         task = db.get(AdHocTask, att.entity_id)
-        if task and user_can_access_task(db, task, user.id):
+        if task and user_can_access_task(db, task, user):
             return
         raise ValueError("access denied")
     if att.entity_type == ENTITY_AD_HOC_TASK_STEP:
@@ -315,7 +315,7 @@ def assert_user_can_access_attachment(db: Session, user, att: Attachment) -> Non
         if not step:
             raise ValueError("مرحله یافت نشد")
         task = db.get(AdHocTask, step.task_id)
-        if task and user_can_access_task(db, task, user.id):
+        if task and user_can_access_task(db, task, user):
             return
         raise ValueError("access denied")
     from app.services.workflow_attachment_access import (

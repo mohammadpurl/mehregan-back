@@ -10,6 +10,8 @@ ROLE_DISPLAY_NAMES: dict[str, str] = {
     "managing_director": "مدیرعامل (قدیمی — ترجیحاً از ceo استفاده کنید)",
     "finance_manager": "مدیر مالی",
     "accountant": "حسابدار",
+    "finance_officer": "کارشناس مالی",
+    "finance_supervisor": "سرپرست مالی",
     "purchase_manager": "مدیر خرید",
     "purchase_officer": "مسئول خرید",
     "procurement_manager": "مدیر تدارکات",

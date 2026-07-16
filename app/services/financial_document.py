@@ -85,6 +85,10 @@ def _serialize(
         "party_name": row.party_name,
         "status": row.status,
         "finance_confirmed_at": row.finance_confirmed_at,
+        "sepidar_registered_at": row.sepidar_registered_at,
+        "sepidar_registered_by": row.sepidar_registered_by,
+        "sepidar_confirmed_at": row.sepidar_confirmed_at,
+        "sepidar_confirmed_by": row.sepidar_confirmed_by,
         "workflow_instance_id": inst.id if inst else None,
         "created_at": row.created_at,
     }

@@ -3,7 +3,7 @@
 # Dashboard
 DASHBOARD_READ = ("dashboard.read",)
 
-# Ad-hoc / unpredictable tasks (anyone with dashboard access)
+# Ad-hoc: مسیر API با get_current_active_user باز است؛ این کدها فقط برای inbox/پیوست
 AD_HOC_TASK_ACCESS = DASHBOARD_READ
 
 # Workflow

@@ -1,7 +1,7 @@
 """
-تعریف workflow تنخواه — روال یکسان مالی + سپیدار
+گردش‌کار تأیید گزارش ماموریت: مدیر مستقیم → مدیرعامل
 
-  python scripts/seed_petty_cash_workflow.py
+  python scripts/seed_mission_report_workflow.py
 """
 
 from __future__ import annotations
@@ -13,11 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.constants.financial_workflow import UNIFIED_FINANCIAL_STEPS
+from app.constants.mission_request import (
+    MISSION_REPORT_STEPS,
+    WORKFLOW_REF_MISSION_REPORT,
+)
 from app.core.database import SessionLocal
 from app.services.workflow_definition_service import upsert_definition
-
-STEPS = list(UNIFIED_FINANCIAL_STEPS)
 
 
 def main() -> None:
@@ -25,11 +26,11 @@ def main() -> None:
     try:
         upsert_definition(
             db,
-            ref_type="petty_cash",
-            name="درخواست تنخواه",
-            steps=STEPS,
+            ref_type=WORKFLOW_REF_MISSION_REPORT,
+            name="تأیید گزارش ماموریت",
+            steps=list(MISSION_REPORT_STEPS),
         )
-        print("OK: workflow_definitions.petty_cash")
+        print(f"OK: workflow_definitions.{WORKFLOW_REF_MISSION_REPORT}")
     finally:
         db.close()
 

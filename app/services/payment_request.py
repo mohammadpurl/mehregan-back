@@ -118,6 +118,8 @@ def _payment_to_dict(
         "payment_order_kind": pr.payment_order_kind,
         "payment_marked_at": pr.payment_marked_at,
         "payment_marked_by": pr.payment_marked_by,
+        "sepidar_confirmed_at": pr.sepidar_confirmed_at,
+        "sepidar_confirmed_by": pr.sepidar_confirmed_by,
         "status": pr.status,
         "created_at": pr.created_at,
     }

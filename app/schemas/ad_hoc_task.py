@@ -67,6 +67,7 @@ class AdHocTaskListResponse(BaseModel):
     total: int
     page: int
     pageSize: int
+    can_view_all: bool = False
 
 
 class UserLookupItem(BaseModel):

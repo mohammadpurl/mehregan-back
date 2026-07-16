@@ -70,6 +70,12 @@ NAV_MENU: list[NavItemDef] = [
                 "required_permissions": ["workflow.inbox.read"],
             },
             {
+                "key": "ad-hoc-tasks",
+                "href": "/dashboard/ad-hoc-tasks",
+                "label": "کارهای پیش‌بینی‌نشده",
+                "required_permissions": [],
+            },
+            {
                 "key": "workflow-tracking",
                 "href": "/dashboard/workflow/tracking",
                 "label": "پیگیری گردش کار",

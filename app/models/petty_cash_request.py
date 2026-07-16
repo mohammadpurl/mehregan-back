@@ -26,6 +26,15 @@ class PettyCashRequest(Base):
     total_expenses: Mapped[float | None] = mapped_column(Numeric(15, 2), nullable=True)
     settled_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
+    sepidar_registered_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    sepidar_registered_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    sepidar_confirmed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    sepidar_confirmed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         default=datetime.utcnow, onupdate=datetime.utcnow

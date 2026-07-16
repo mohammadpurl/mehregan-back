@@ -51,6 +51,24 @@ def _sync_business_on_return_to_requester(db: Session, inst: WorkflowInstance) -
         on_workflow_rejected(db, ref_id)
         return
 
+    if ref_type == "petty_cash_settlement":
+        from app.services.petty_cash import on_settlement_workflow_rejected
+
+        on_settlement_workflow_rejected(db, ref_id)
+        return
+
+    if ref_type == "mission_request":
+        from app.services.mission_request import on_workflow_rejected
+
+        on_workflow_rejected(db, ref_id)
+        return
+
+    if ref_type == "mission_report":
+        from app.services.mission_request import on_report_workflow_rejected
+
+        on_report_workflow_rejected(db, ref_id)
+        return
+
     if ref_type == "request":
         from app.constants.procurement import STATUS_PENDING
         from app.models.request import Request
@@ -74,9 +92,10 @@ def reject_step(
     user,
     *,
     comment: str | None = None,
-    return_to: str = RETURN_TO_REQUESTER,
+    return_to: str = RETURN_TO_PREVIOUS,
 ) -> WorkflowInstance:
-    target = (return_to or RETURN_TO_REQUESTER).strip().lower()
+    # سیاست محصول: رد همیشه به مرحله قبل؛ فقط مرحلهٔ ۱ به درخواست‌کننده برمی‌گردد.
+    target = (return_to or RETURN_TO_PREVIOUS).strip().lower()
     if target not in RETURN_TARGETS:
         raise ValueError("return_to must be 'previous' or 'requester'")
     if not comment or not str(comment).strip():
@@ -92,6 +111,12 @@ def reject_step(
     instance = db.get(WorkflowInstance, instance_id)
     if not instance:
         raise ValueError("workflow instance not found")
+
+    # اگر مرحله قبل وجود دارد، همیشه previous — حتی اگر کلاینت requester فرستاده باشد
+    if step.order > 1:
+        target = RETURN_TO_PREVIOUS
+    else:
+        target = RETURN_TO_REQUESTER
 
     step.status = "rejected"
     step.approved_by = user.id
@@ -110,36 +135,33 @@ def reject_step(
     mark_inbox_done_for_workflow(db, instance_id, user_id=user.id)
 
     if target == RETURN_TO_PREVIOUS:
-        if step.order <= 1:
-            target = RETURN_TO_REQUESTER
-        else:
-            prev = (
-                db.query(WorkflowStep)
-                .filter(
-                    WorkflowStep.instance_id == instance_id,
-                    WorkflowStep.order == step.order - 1,
-                )
-                .first()
+        prev = (
+            db.query(WorkflowStep)
+            .filter(
+                WorkflowStep.instance_id == instance_id,
+                WorkflowStep.order == step.order - 1,
             )
-            if not prev:
-                raise ValueError("مرحله قبلی یافت نشد")
-            prev.status = "pending"
-            prev.approved_by = None
-            prev.approved_at = None
-            instance.status = "in_progress"
+            .first()
+        )
+        if not prev:
+            raise ValueError("مرحله قبلی یافت نشد")
+        prev.status = "pending"
+        prev.approved_by = None
+        prev.approved_at = None
+        instance.status = "in_progress"
+        db.commit()
+        if prev.assigned_user_id:
+            notify_workflow_next_step(
+                db,
+                {
+                    "instance_id": instance_id,
+                    "role_id": prev.role_id,
+                    "step_id": prev.id,
+                    "user_id": prev.assigned_user_id,
+                },
+            )
             db.commit()
-            if prev.assigned_user_id:
-                notify_workflow_next_step(
-                    db,
-                    {
-                        "instance_id": instance_id,
-                        "role_id": prev.role_id,
-                        "step_id": prev.id,
-                        "user_id": prev.assigned_user_id,
-                    },
-                )
-                db.commit()
-            return instance
+        return instance
 
     instance.status = "returned"
     _sync_business_on_return_to_requester(db, instance)

@@ -24,48 +24,9 @@ from app.services.workflow_step_config import (
     resolve_step_assignee_user,
 )
 
-PAYMENT_ORDER_STEPS = [
-    {
-        "order": 1,
-        "label": "تأیید مدیر واحد",
-        "role_aliases": ["manager", "project_manager", "مدیر واحد", "مدیر مستقیم"],
-        "assignee_strategy": "submitter_manager",
-        "step_action": "approval",
-    },
-    {
-        "order": 2,
-        "label": "تأیید مدیر مالی",
-        "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-        "assignee_strategy": "role_pool",
-        "step_action": "approval",
-    },
-    {
-        "order": 3,
-        "label": "تأیید برداشت — مدیرعامل",
-        "role_aliases": ["ceo", "managing_director", "مدیرعامل"],
-        "assignee_strategy": "role_pool",
-        "step_action": "approval",
-    },
-    {
-        "order": 4,
-        "label": "ثبت انجام پرداخت — کارشناس مالی",
-        "role_aliases": [
-            "finance_manager",
-            "accountant",
-            "finance_officer",
-            "کارشناس مالی",
-        ],
-        "assignee_strategy": "role_pool",
-        "step_action": "mark_payment",
-    },
-    {
-        "order": 5,
-        "label": "تأیید نهایی — مدیر مالی",
-        "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-        "assignee_strategy": "role_pool",
-        "step_action": "final_payment_approval",
-    },
-]
+from app.constants.financial_workflow import UNIFIED_FINANCIAL_STEPS
+
+PAYMENT_ORDER_STEPS = list(UNIFIED_FINANCIAL_STEPS)
 
 
 def repair_pending_instances(db) -> int:

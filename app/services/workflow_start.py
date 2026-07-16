@@ -9,11 +9,10 @@ from app.models.workflow_instance import WorkflowInstance
 from app.models.workflow_step import WorkflowStep
 from app.services.workflow_definition_service import get_steps_config
 from app.services.workflow_step_config import (
-    SUBMITTER_MANAGER,
     format_missing_role_assignee_error,
-    is_ceo_role_step,
     resolve_role_id_for_step,
     resolve_step_assignee_user,
+    should_skip_missing_manager_step,
 )
 
 
@@ -57,6 +56,11 @@ def start_workflow_instance(
     """
     نمونه و مراحل را می‌سازد و workflow.next_step را منتشر می‌کند.
     اگر نمونهٔ فعال از قبل وجود داشته باشد، همان را برمی‌گرداند (idempotent).
+
+    قوانین تخصیص:
+    - اگر مرحله submitter_manager باشد و manager_id نباشد → آن مرحله رد می‌شود.
+    - یک نفر می‌تواند چند مرحلهٔ پشت‌سرهم داشته باشد؛ با اولین تأیید،
+      مراحل بعدی که همان نفر مسئولشان است auto-skip می‌شوند.
     """
     ref_type = payload.get("ref_type")
     ref_id = payload.get("ref_id")
@@ -87,60 +91,35 @@ def start_workflow_instance(
     db.flush()
 
     created_steps: list[WorkflowStep] = []
-    assigned_user_ids: list[int] = []
     for idx, step_cfg in enumerate(steps_config, start=1):
+        if should_skip_missing_manager_step(
+            db, step_cfg, submitter_id=submitter_id
+        ):
+            continue
+
         role_id = resolve_role_id_for_step(db, step_cfg)
         override = assignees.get(idx)
-        # فقط تأییدکنندهٔ مرحلهٔ قبل از انتخاب حذف شود — همان مدیرعامل می‌تواند
-        # در مراحل غیرمتوالی (مثلاً ۲ و ۴) دوباره تأیید کند.
-        exclude = [assigned_user_ids[-1]] if assigned_user_ids else []
+        # عمداً تأییدکنندهٔ قبل را exclude نمی‌کنیم تا همان نفر بتواند
+        # مرحلهٔ مدیر مستقیم و مدیرعامل/مالی را با یک تأیید انجام دهد (auto-skip).
         assignee = resolve_step_assignee_user(
             db,
             step_cfg,
             role_id=role_id,
             submitter_id=submitter_id,
             override_user_id=override,
-            exclude_user_ids=exclude,
+            exclude_user_ids=None,
         )
-        if assignee is None and exclude:
-            # مدیر مستقیم = تنها مدیرعامل: مرحلهٔ تکراری مدیرعامل را رد کن
-            prev_cfg = steps_config[idx - 2] if idx >= 2 else None
-            same_person = resolve_step_assignee_user(
-                db,
-                step_cfg,
-                role_id=role_id,
-                submitter_id=submitter_id,
-                override_user_id=override,
-                exclude_user_ids=None,
-            )
-            if (
-                same_person
-                and same_person.id == assigned_user_ids[-1]
-                and prev_cfg
-                and (prev_cfg.get("assignee_strategy") or "") == SUBMITTER_MANAGER
-                and is_ceo_role_step(step_cfg)
-            ):
-                continue
-            db.rollback()
-            raise ValueError(
-                format_missing_role_assignee_error(
-                    db, step_cfg, role_id, exclude_user_ids=exclude
-                )
-            )
         if assignee is None:
             db.rollback()
             raise ValueError(
                 format_missing_role_assignee_error(
-                    db, step_cfg, role_id, exclude_user_ids=exclude
+                    db,
+                    step_cfg,
+                    role_id,
+                    exclude_user_ids=None,
+                    submitter_id=submitter_id,
                 )
             )
-        if assigned_user_ids and assignee.id == assigned_user_ids[-1]:
-            db.rollback()
-            raise ValueError(
-                f"مرحله {idx} و مرحله قبل به یک کاربر ({assignee.id}) اختصاص یافته‌اند؛ "
-                "دو مرحلهٔ پشت‌سرهم نباید به یک نفر برسند (مثلاً مدیر مالی و مدیرعامل)."
-            )
-        assigned_user_ids.append(assignee.id)
         step = WorkflowStep(
             instance_id=instance.id,
             role_id=role_id,
@@ -154,7 +133,10 @@ def start_workflow_instance(
 
     if not created_steps:
         db.rollback()
-        raise ValueError("هیچ مرحلهٔ قابل تخصیص برای گردش‌کار ساخته نشد")
+        raise ValueError(
+            "هیچ مرحلهٔ قابل تخصیص برای گردش‌کار ساخته نشد. "
+            "تعریف workflow و نقش/مدیر مستقیم کاربران را بررسی کنید."
+        )
 
     first_step = created_steps[0]
     db.commit()
