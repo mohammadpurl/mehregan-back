@@ -13,11 +13,11 @@ from app.models.workflow_step import WorkflowStep
 from app.services.inbox import mark_inbox_done_for_workflow
 from app.services.workflow_approval_log import record_workflow_decision
 from app.services.workflow_notifications import (
+    notify_submitter_step_decision,
     notify_workflow_next_step,
     notify_workflow_rejected,
 )
 from app.services.workflow_step_access import user_can_act_on_workflow_step
-from app.services.workflow_submitter import resolve_submitter_id
 
 RETURN_TO_PREVIOUS = "previous"
 RETURN_TO_REQUESTER = "requester"
@@ -78,7 +78,7 @@ def _sync_business_on_return_to_requester(db: Session, inst: WorkflowInstance) -
             req.status = STATUS_PENDING
         return
 
-    if ref_type == "payment_request":
+    if ref_type in ("payment_request", "payment_order"):
         from app.models.payment_request import PaymentRequest
 
         pr = db.get(PaymentRequest, ref_id)
@@ -144,13 +144,15 @@ def reject_step(
     )
     mark_inbox_done_for_workflow(db, instance_id, user_id=user.id)
 
+    rejected_step_order = step.order
+
     if target == RETURN_TO_PREVIOUS and prev:
         prev.status = "pending"
         prev.approved_by = None
         prev.approved_at = None
         instance.status = "in_progress"
         db.commit()
-        if prev.assigned_user_id:
+        if prev.assigned_user_id or prev.role_id:
             notify_workflow_next_step(
                 db,
                 {
@@ -160,7 +162,17 @@ def reject_step(
                     "user_id": prev.assigned_user_id,
                 },
             )
-            db.commit()
+        notify_submitter_step_decision(
+            db,
+            instance_id=instance_id,
+            decision="rejected",
+            step_order=rejected_step_order,
+            actor=user,
+            comment=comment.strip(),
+            returned_to_previous=True,
+            create_inbox=False,
+        )
+        db.commit()
         return instance
 
     instance.status = "returned"
@@ -168,14 +180,14 @@ def reject_step(
     close_sla_for_instance(db, instance_id)
     db.commit()
 
-    submitter_id = resolve_submitter_id(db, instance)
-    if submitter_id:
-        notify_workflow_rejected(
-            db,
-            instance_id=instance_id,
-            rejected_by_user_id=user.id,
-            comment=comment.strip(),
-        )
+    notify_workflow_rejected(
+        db,
+        instance_id=instance_id,
+        rejected_by_user_id=user.id,
+        comment=comment.strip(),
+        step_order=rejected_step_order,
+        actor=user,
+    )
 
     rejected_payload: dict = {
         "instance_id": instance_id,

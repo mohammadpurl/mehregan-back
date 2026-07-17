@@ -163,6 +163,19 @@ def complete_mark_payment_step(
         completed_order=step.order,
         actor=user,
     )
+    db.refresh(instance)
+    from app.services.workflow_notifications import notify_submitter_step_decision
+
+    notify_submitter_step_decision(
+        db,
+        instance_id=instance.id,
+        decision="approved",
+        step_order=step.order,
+        actor=user,
+        comment=comment,
+        final=instance.status == "approved",
+    )
+    db.commit()
 
 
 def assert_can_approve_pending_step(

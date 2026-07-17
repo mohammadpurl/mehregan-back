@@ -58,6 +58,7 @@ def _notify_assignee(db: Session, *, assignee_id: int, task: AdHocTask, author_n
         type="ad_hoc_task.assigned",
         ref_id=task.id,
         ref_type="ad_hoc_task",
+        dedupe_unread=True,
     )
 
 

@@ -297,6 +297,19 @@ def complete_operational_step(
         completed_order=step.order,
         actor=user,
     )
+    db.refresh(inst)
+    from app.services.workflow_notifications import notify_submitter_step_decision
+
+    notify_submitter_step_decision(
+        db,
+        instance_id=inst.id,
+        decision="approved",
+        step_order=step.order,
+        actor=user,
+        comment=comment,
+        final=inst.status == "approved",
+    )
+    db.commit()
 
 
 def _has_submitted_proforma(db: Session, request_id: int) -> bool:

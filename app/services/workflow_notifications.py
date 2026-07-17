@@ -16,19 +16,40 @@ from app.services.inbox import (
 )
 from app.services.notification import create_notification
 from app.services.notification_dispatcher import dispatch_notification
+from app.models.user import User
 from app.services.workflow_messages import (
     inbox_message_for_step,
     inbox_title_for_step,
     notification_message_for_step,
-    notification_message_rejected,
+    notification_message_step_approved,
+    notification_message_step_rejected,
     notification_title_for_step,
-    notification_title_rejected,
+    notification_title_step_approved,
+    notification_title_step_rejected,
     ref_type_label,
 )
 from app.services.workflow_feed_context import build_workflow_notify_context
 from app.services.workflow_submitter import resolve_submitter_id
 
 logger = logging.getLogger(__name__)
+
+
+def _actor_display_name(user: User | None) -> str | None:
+    if not user:
+        return None
+    name = getattr(user, "full_name", None)
+    if name and str(name).strip():
+        return str(name).strip()
+    return None
+
+
+def _dispatch_ws(user_id: int, payload: dict, *, notif_id: int | None = None) -> None:
+    try:
+        asyncio.run(dispatch_notification(int(user_id), payload))
+    except Exception:
+        logger.exception(
+            "WebSocket dispatch failed for notification %s", notif_id
+        )
 
 
 def notify_workflow_next_step(db: Session, payload: dict) -> int | None:
@@ -109,27 +130,124 @@ def notify_workflow_next_step(db: Session, payload: dict) -> int | None:
         ref_type="workflow",
         dedupe_unread=True,
     )
-    try:
-        asyncio.run(
-            dispatch_notification(
-                int(target_user_id),
-                {
-                    "type": "workflow.next_step",
-                    "instance_id": instance_id,
-                    "step_id": step_id,
-                    "title": title,
-                    "message": notification_message_for_step(
-                        ref_type, step_order, ctx=ctx
-                    ),
-                    "ref_type": ref_type,
-                    "ref_label": ref_type_label(ref_type),
-                },
-            )
-        )
-    except Exception:
-        logger.exception("WebSocket dispatch failed for notification %s", notif.id)
+    _dispatch_ws(
+        int(target_user_id),
+        {
+            "type": "workflow.next_step",
+            "instance_id": instance_id,
+            "step_id": step_id,
+            "title": title,
+            "message": notification_message_for_step(
+                ref_type, step_order, ctx=ctx
+            ),
+            "ref_type": ref_type,
+            "ref_label": ref_type_label(ref_type),
+        },
+        notif_id=notif.id,
+    )
 
     return int(target_user_id)
+
+
+def notify_submitter_step_decision(
+    db: Session,
+    *,
+    instance_id: int,
+    decision: str,
+    step_order: int | None = None,
+    actor: User | None = None,
+    comment: str | None = None,
+    final: bool = False,
+    returned_to_previous: bool = False,
+    create_inbox: bool = False,
+) -> int | None:
+    """اعلان وضعیت تأیید/رد هر مرحله برای درخواست‌دهنده."""
+    inst = db.get(WorkflowInstance, instance_id)
+    if not inst:
+        return None
+
+    submitter_id = resolve_submitter_id(db, inst)
+    if not submitter_id:
+        logger.warning(
+            "notify_submitter_step_decision: no submitter for instance=%s ref=%s/%s",
+            instance_id,
+            inst.ref_type,
+            inst.ref_id,
+        )
+        return None
+
+    if actor is not None and int(submitter_id) == int(actor.id):
+        return None
+
+    ctx = build_workflow_notify_context(db, inst, step_order=step_order)
+    label = ctx.display_label if ctx else ref_type_label(inst.ref_type)
+    actor_name = _actor_display_name(actor)
+    decision_norm = (decision or "").strip().lower()
+
+    if decision_norm == "approved":
+        title = notification_title_step_approved(label, step_order=step_order)
+        message = notification_message_step_approved(
+            label,
+            step_order=step_order,
+            actor_name=actor_name,
+            final=final,
+        )
+        notif_type = "workflow.step_approved" if not final else "workflow.approved"
+        ws_type = "workflow.step_approved" if not final else "workflow.approved"
+    else:
+        title = notification_title_step_rejected(
+            label,
+            step_order=step_order,
+            returned_to_previous=returned_to_previous,
+        )
+        message = notification_message_step_rejected(
+            label,
+            step_order=step_order,
+            actor_name=actor_name,
+            comment=comment,
+            returned_to_previous=returned_to_previous,
+        )
+        notif_type = "workflow.rejected"
+        ws_type = "workflow.rejected"
+
+    notif = create_notification(
+        db=db,
+        user_id=submitter_id,
+        title=title,
+        message=message,
+        type=notif_type,
+        ref_id=instance_id,
+        ref_type="workflow",
+        dedupe_unread=False,
+    )
+
+    if create_inbox:
+        create_inbox_item(
+            db=db,
+            role_id=None,
+            title=title,
+            message=message,
+            ref_id=instance_id,
+            ref_type="workflow",
+            preferred_user_id=submitter_id,
+        )
+
+    _dispatch_ws(
+        int(submitter_id),
+        {
+            "type": ws_type,
+            "instance_id": instance_id,
+            "step_order": step_order,
+            "title": title,
+            "message": message,
+            "ref_type": inst.ref_type,
+            "ref_label": label,
+            "final": final,
+            "returned_to_previous": returned_to_previous,
+        },
+        notif_id=notif.id if notif else None,
+    )
+    return submitter_id
 
 
 def notify_workflow_rejected(
@@ -138,42 +256,29 @@ def notify_workflow_rejected(
     instance_id: int,
     rejected_by_user_id: int | None = None,
     comment: str | None = None,
+    step_order: int | None = None,
+    actor: User | None = None,
 ) -> int | None:
+    """رد کامل و بازگشت به درخواست‌کننده — اعلان + کارتابل."""
     inst = db.get(WorkflowInstance, instance_id)
     if not inst:
         return None
 
     mark_inbox_done_for_workflow(db, instance_id)
 
-    submitter_id = resolve_submitter_id(db, inst)
-    if not submitter_id:
-        return None
+    if actor is None and rejected_by_user_id:
+        actor = db.get(User, rejected_by_user_id)
 
-    ctx = build_workflow_notify_context(db, inst)
-    label = ctx.display_label if ctx else ref_type_label(inst.ref_type)
-    title = notification_title_rejected(label)
-    message = notification_message_rejected(label, comment=comment)
-
-    create_notification(
-        db=db,
-        user_id=submitter_id,
-        title=title,
-        message=message,
-        type="workflow.rejected",
-        ref_id=instance_id,
-        ref_type="workflow",
+    return notify_submitter_step_decision(
+        db,
+        instance_id=instance_id,
+        decision="rejected",
+        step_order=step_order,
+        actor=actor,
+        comment=comment,
+        returned_to_previous=False,
+        create_inbox=True,
     )
-
-    create_inbox_item(
-        db=db,
-        role_id=None,
-        title=title,
-        message=message,
-        ref_id=instance_id,
-        ref_type="workflow",
-        preferred_user_id=submitter_id,
-    )
-    return submitter_id
 
 
 def notify_sla_escalation(

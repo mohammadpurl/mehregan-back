@@ -20,7 +20,10 @@ from app.services.payment_request_terms import (
 from app.services.workflow_step_kinds import step_is_financial
 from app.services.workflow_approval_log import record_workflow_decision
 from app.services.workflow_step_access import user_can_act_on_workflow_step
-from app.services.workflow_notifications import notify_workflow_next_step
+from app.services.workflow_notifications import (
+    notify_submitter_step_decision,
+    notify_workflow_next_step,
+)
 from app.models.user import User
 
 ALLOWED_TRANSITIONS = {
@@ -164,6 +167,7 @@ def approve_step(
     )
 
     _assert_can_approve(step, user)
+    completed_order = step.order
     _complete_step(db, step, user, auto_skipped=False, comment=comment)
     mark_inbox_done_for_workflow(db, instance_id, user_id=user.id)
 
@@ -184,7 +188,6 @@ def approve_step(
             raise ValueError("روش پرداخت هنگام تأیید پیش‌فاکتور الزامی است")
 
     if instance and instance.ref_type == WORKFLOW_REF_PURCHASE:
-        completed_order = step.order
         advance_workflow_after_step(
             db,
             instance_id,
@@ -193,15 +196,37 @@ def approve_step(
             payment_method=payment_method,
             payment_comment=comment,
         )
+        db.refresh(instance)
+        notify_submitter_step_decision(
+            db,
+            instance_id=instance_id,
+            decision="approved",
+            step_order=completed_order,
+            actor=user,
+            comment=comment,
+            final=instance.status == "approved",
+        )
+        db.commit()
         return
 
     if instance and is_financial_ref_type(instance.ref_type):
         fin_advance_workflow_after_step(
             db,
             instance_id=instance_id,
-            completed_order=step.order,
+            completed_order=completed_order,
             actor=user,
         )
+        db.refresh(instance)
+        notify_submitter_step_decision(
+            db,
+            instance_id=instance_id,
+            decision="approved",
+            step_order=completed_order,
+            actor=user,
+            comment=comment,
+            final=instance.status == "approved",
+        )
+        db.commit()
         return
 
     while True:
@@ -223,6 +248,16 @@ def approve_step(
             from app.services.workflow_procurement_bridge import on_pr_approved
 
             on_pr_approved(db, approved_payload)
+            notify_submitter_step_decision(
+                db,
+                instance_id=instance_id,
+                decision="approved",
+                step_order=completed_order,
+                actor=user,
+                comment=comment,
+                final=True,
+            )
+            db.commit()
             return
 
         assigned_user = None
@@ -255,6 +290,15 @@ def approve_step(
                     db.commit()
                     publish_event(WORKFLOW_NEXT_STEP, next_payload)
                     notify_workflow_next_step(db, next_payload)
+                    notify_submitter_step_decision(
+                        db,
+                        instance_id=instance_id,
+                        decision="approved",
+                        step_order=completed_order,
+                        actor=user,
+                        comment=comment,
+                        final=False,
+                    )
                     db.commit()
                     return
             _complete_step(db, next_step, user, auto_skipped=True)
@@ -271,6 +315,15 @@ def approve_step(
         db.commit()
         publish_event(WORKFLOW_NEXT_STEP, next_payload)
         notify_workflow_next_step(db, next_payload)
+        notify_submitter_step_decision(
+            db,
+            instance_id=instance_id,
+            decision="approved",
+            step_order=completed_order,
+            actor=user,
+            comment=comment,
+            final=False,
+        )
         db.commit()
         return
 
