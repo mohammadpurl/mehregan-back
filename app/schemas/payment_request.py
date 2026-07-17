@@ -40,6 +40,11 @@ class PaymentRequestOut(BaseModel):
     )
     payer_account: str = Field(serialization_alias="payerAccount")
     receiver_account: str = Field(serialization_alias="receiverAccount")
+    # فیلدهای ساختاریافته مقصد دستور پرداخت (نام/اشتراک + شماره حساب)
+    receiver_name: str | None = Field(None, serialization_alias="receiverName")
+    receiver_account_number: str | None = Field(
+        None, serialization_alias="receiverAccountNumber"
+    )
     payer_account_detail: BankAccountOut | None = Field(
         None, serialization_alias="payerAccountDetail"
     )

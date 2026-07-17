@@ -115,12 +115,17 @@ def _payment_to_dict(
     # اگر حساب طرف‌حساب لینک نشده، از اسنپ‌شات دستور پرداخت جزئیات مقصد را بساز
     if receiver_detail is None and snap_account:
         sheba = snap_account if snap_account.upper().startswith("IR") else None
+        holder = (snap_name or "").strip() or snap_account
         receiver_detail = {
-            "label": snap_name,
+            "id": None,
+            "label": holder,
             "bank_name": None,
             "account_number": None if sheba else snap_account,
             "sheba_number": sheba,
             "card_number": None,
+            "is_default": False,
+            "is_active": True,
+            "display_label": holder,
         }
     return {
         "id": pr.id,

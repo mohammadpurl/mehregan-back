@@ -45,7 +45,8 @@ class BankAccountUpdate(BaseModel):
 class BankAccountOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-    id: int
+    # برای اسنپ‌شات دستی دستور پرداخت (بدون ردیف بانک) id نداریم
+    id: int | None = None
     label: str
     bank_name: str | None = Field(None, serialization_alias="bankName")
     account_number: str | None = Field(None, serialization_alias="accountNumber")
