@@ -112,8 +112,18 @@ def reject_step(
     if not instance:
         raise ValueError("workflow instance not found")
 
-    # اگر مرحله قبل وجود دارد، همیشه previous — حتی اگر کلاینت requester فرستاده باشد
-    if step.order > 1:
+    # مرحله قبل = آخرین مرحلهٔ موجود با order کمتر (نه لزوماً order-1؛
+    # چون با skip مدیر مستقیم ممکن است شمارهٔ مراحل در نمونه پیوسته نباشد)
+    prev = (
+        db.query(WorkflowStep)
+        .filter(
+            WorkflowStep.instance_id == instance_id,
+            WorkflowStep.order < step.order,
+        )
+        .order_by(WorkflowStep.order.desc())
+        .first()
+    )
+    if prev:
         target = RETURN_TO_PREVIOUS
     else:
         target = RETURN_TO_REQUESTER
@@ -134,17 +144,7 @@ def reject_step(
     )
     mark_inbox_done_for_workflow(db, instance_id, user_id=user.id)
 
-    if target == RETURN_TO_PREVIOUS:
-        prev = (
-            db.query(WorkflowStep)
-            .filter(
-                WorkflowStep.instance_id == instance_id,
-                WorkflowStep.order == step.order - 1,
-            )
-            .first()
-        )
-        if not prev:
-            raise ValueError("مرحله قبلی یافت نشد")
+    if target == RETURN_TO_PREVIOUS and prev:
         prev.status = "pending"
         prev.approved_by = None
         prev.approved_at = None

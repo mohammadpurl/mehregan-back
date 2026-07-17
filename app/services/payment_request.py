@@ -92,10 +92,36 @@ def _account_detail(db: Session, pr: PaymentRequest) -> tuple[dict | None, dict 
     return payer_detail, receiver_detail
 
 
+def _parse_receiver_snapshot(snap: str | None) -> tuple[str | None, str | None]:
+    """از اسنپ‌شات «نام | شماره» فیلدهای ساختاریافته بساز."""
+    raw = (snap or "").strip()
+    if not raw or raw == "پرداخت جمعی":
+        return None, None
+    if " | " in raw:
+        name, account = raw.split(" | ", 1)
+        name = name.strip() or None
+        account = account.strip() or None
+        if account and account.endswith("..."):
+            account = account.rstrip(".").strip() or account
+        return name, account
+    return raw, raw
+
+
 def _payment_to_dict(
     db: Session, pr: PaymentRequest, cp: Counterparty | None = None
 ) -> dict:
     payer_detail, receiver_detail = _account_detail(db, pr)
+    snap_name, snap_account = _parse_receiver_snapshot(pr.receiver_account)
+    # اگر حساب طرف‌حساب لینک نشده، از اسنپ‌شات دستور پرداخت جزئیات مقصد را بساز
+    if receiver_detail is None and snap_account:
+        sheba = snap_account if snap_account.upper().startswith("IR") else None
+        receiver_detail = {
+            "label": snap_name,
+            "bank_name": None,
+            "account_number": None if sheba else snap_account,
+            "sheba_number": sheba,
+            "card_number": None,
+        }
     return {
         "id": pr.id,
         "requester_id": pr.requester_id,
@@ -108,6 +134,8 @@ def _payment_to_dict(
         "amount": float(pr.amount),
         "payer_account": pr.payer_account,
         "receiver_account": pr.receiver_account,
+        "receiver_name": snap_name,
+        "receiver_account_number": snap_account,
         "payer_account_detail": payer_detail,
         "receiver_account_detail": receiver_detail,
         "payment_date": pr.payment_date,
