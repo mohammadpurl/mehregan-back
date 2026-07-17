@@ -170,7 +170,10 @@ def serialize_payment_request(
     base = _payment_to_dict(db, pr, cp)
     requester = db.get(User, pr.requester_id)
     if requester:
-        base["requester_name"] = requester.full_name
+        # همیشه نام قابل‌نمایش برای تأییدکنندگان (نه فقط مدیر درخواست‌دهنده)
+        base["requester_name"] = requester.full_name or requester.username
+    else:
+        base["requester_name"] = None
     if workflow_instance_id is None:
         inst = workflow_instance_for_payment(db, pr.id)
         workflow_instance_id = inst.id if inst else None
@@ -443,7 +446,7 @@ def list_payment_requests(
     scope: str | None = None,
     offset: int = 0,
     limit: int = 20,
-    sort_by: str = "id",
+    sort_by: str = "created_at",
     sort_order: str = "desc",
     filter_by: str | None = None,
     filter_value: str | None = None,
@@ -459,7 +462,9 @@ def list_payment_requests(
         search,
         ["payment_type", "payer_account", "receiver_account", "reason", "status"],
     )
-    query = apply_sort(query, PaymentRequest, sort_by, sort_order)
+    # نزدیک‌ترین تاریخ ثبت اول — اگر sort_by ناشناخته بود، created_at
+    resolved_sort = sort_by if hasattr(PaymentRequest, sort_by) else "created_at"
+    query = apply_sort(query, PaymentRequest, resolved_sort, sort_order)
     rows = query.offset(offset).limit(limit).all()
     ids = [r.id for r in rows]
     counts = count_attachments_batch(db, ENTITY_PAYMENT_REQUEST, ids)

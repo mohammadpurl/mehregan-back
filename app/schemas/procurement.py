@@ -85,8 +85,8 @@ class PurchaseRequestOut(BaseModel):
     id: int
     type: str
     status: str
-    requester_id: int
-    requester_name: str | None = None
+    requester_id: int = Field(serialization_alias="requesterId")
+    requester_name: str | None = Field(None, serialization_alias="requesterName")
     reason: str | None = None
     items: list[PurchaseLineOut] = Field(default_factory=list)
     workflow_instance_id: int | None = Field(None, serialization_alias="workflowInstanceId")

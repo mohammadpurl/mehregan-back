@@ -27,6 +27,7 @@ class PaymentRequestOut(BaseModel):
 
     id: int
     requester_id: int = Field(serialization_alias="requesterId")
+    requester_name: str | None = Field(None, serialization_alias="requesterName")
     counterparty_id: int | None = Field(None, serialization_alias="counterpartyId")
     counterparty: CounterpartyBriefOut | None = None
     payment_type: str = Field(serialization_alias="paymentType")

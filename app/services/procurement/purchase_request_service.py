@@ -239,7 +239,7 @@ def serialize_purchase_request(db: Session, req: Request) -> dict:
         "type": req.type,
         "status": req.status,
         "requester_id": req.requester_id,
-        "requester_name": requester.full_name if requester else None,
+        "requester_name": (requester.full_name or requester.username) if requester else None,
         "reason": req.reason,
         "payment_request_id": req.payment_request_id,
         "purchase_order_id": req.purchase_order_id,
@@ -425,7 +425,7 @@ def list_purchase_requests(
     scope: str | None = None,
     offset: int = 0,
     limit: int = 20,
-    sort_by: str = "id",
+    sort_by: str = "created_at",
     sort_order: str = "desc",
     filter_by: str | None = None,
     filter_value: str | None = None,
@@ -436,7 +436,8 @@ def list_purchase_requests(
     query = apply_purchase_request_list_scope(db, query, user=viewer, scope=resolved)
     query = apply_equal_filter(query, Request, filter_by, filter_value)
     query = apply_search_filter(query, Request, search, ["status", "reason"])
-    query = apply_sort(query, Request, sort_by, sort_order)
+    resolved_sort = sort_by if hasattr(Request, sort_by) else "created_at"
+    query = apply_sort(query, Request, resolved_sort, sort_order)
     rows = query.offset(offset).limit(limit).all()
     return [serialize_purchase_request(db, r) for r in rows]
 
