@@ -14,6 +14,7 @@ WORKFLOW_TRACKING = (
     "workflow.all.read",
     "workflow.read",
 )
+WORKFLOW_ALL = ("workflow.all.read",)
 WORKFLOW_APPROVE = ("workflow.approve",)
 WORKFLOW_CORRECTION = ("workflow.correction",)
 WORKFLOW_VIEW = (
@@ -26,6 +27,10 @@ WORKFLOW_VIEW = (
 # Financial
 PAYMENT_ACCESS = ("payment.create", "payment.approve")
 PAYMENT_WRITE = ("payment.create",)
+PAYMENT_APPROVE = ("payment.approve",)
+
+# Admin
+ADMIN_MANAGE = ("admin.manage",)
 
 # Procurement
 PROCUREMENT_READ = ("procurement.read",)

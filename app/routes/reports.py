@@ -4,9 +4,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.constants.api_permissions import (
-    DASHBOARD_READ,
+    ADMIN_MANAGE,
     INVENTORY_READ,
-    PAYMENT_ACCESS,
+    PAYMENT_APPROVE,
+    PROCUREMENT_READ,
+    WORKFLOW_ALL,
     WORKFLOW_TRACKING,
 )
 from app.core.database import get_db
@@ -23,7 +25,7 @@ def executive_financial_report_api(
     date_from: date | None = Query(None, alias="dateFrom"),
     date_to: date | None = Query(None, alias="dateTo"),
     db: Session = Depends(get_db),
-    _user=Depends(require_any_permission(*PAYMENT_ACCESS, *WORKFLOW_TRACKING)),
+    _user=Depends(require_any_permission(*PAYMENT_APPROVE, *WORKFLOW_ALL, *ADMIN_MANAGE)),
 ):
     return get_executive_financial_report(db, date_from=date_from, date_to=date_to)
 
@@ -41,7 +43,7 @@ def executive_sla_report_api(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
     db: Session = Depends(get_db),
-    _user=Depends(require_any_permission(*WORKFLOW_TRACKING, *DASHBOARD_READ)),
+    _user=Depends(require_any_permission(*WORKFLOW_TRACKING)),
 ):
     offset = (page - 1) * page_size
     return get_sla_report(
@@ -61,7 +63,7 @@ def warehouse_daily_report_api(
     report_date: date | None = Query(None, alias="date"),
     warehouse_id: int | None = Query(None, alias="warehouseId"),
     db: Session = Depends(get_db),
-    _user=Depends(require_any_permission(*INVENTORY_READ, *WORKFLOW_TRACKING, *DASHBOARD_READ)),
+    _user=Depends(require_any_permission(*INVENTORY_READ, *PROCUREMENT_READ)),
 ):
     return get_warehouse_daily_report(
         db, report_date=report_date, warehouse_id=warehouse_id

@@ -85,13 +85,13 @@ NAV_MENU: list[NavItemDef] = [
                 "key": "reports-sla",
                 "href": "/dashboard/reports/sla",
                 "label": "گزارش SLA",
-                "required_permissions": ["workflow.tracking.read", "dashboard.read"],
+                "required_permissions": ["workflow.tracking.read"],
             },
             {
                 "key": "reports-financial",
                 "href": "/dashboard/reports/financial",
                 "label": "گزارش مالی اجرایی",
-                "required_permissions": ["payment.create", "payment.approve", "workflow.tracking.read"],
+                "required_permissions": ["payment.approve", "workflow.all.read", "admin.manage"],
             },
             {
                 "key": "reports-warehouse",
