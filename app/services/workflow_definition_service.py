@@ -218,8 +218,15 @@ def preview_assignees(
     ref_type: str,
     *,
     submitter_id: int | None,
+    steps_override: list | None = None,
 ) -> list[dict]:
-    steps = get_steps_config(db, ref_type)
+    """steps_override: پیش‌نمایش روی پیش‌نویس فرم ادمین (قبل از ذخیره)."""
+    if steps_override is not None:
+        steps = _canonicalize_steps_role_aliases(
+            db, normalize_steps_config(steps_override)
+        )
+    else:
+        steps = get_steps_config(db, ref_type)
     preview: list[dict] = []
     for step in steps:
         role_id = resolve_role_id_for_step(db, step)
@@ -259,6 +266,17 @@ def preview_assignees(
     return preview
 
 
+def _canonicalize_steps_role_aliases(db: Session, steps: list[dict]) -> list[dict]:
+    """نقش‌ها را به name پایدار جدول roles تبدیل می‌کند (نه برچسب فارسی تکراری)."""
+    from app.services.workflow_step_config import canonicalize_role_aliases
+
+    out: list[dict] = []
+    for step in steps:
+        aliases = canonicalize_role_aliases(db, step.get("role_aliases") or [])
+        out.append({**step, "role_aliases": aliases})
+    return out
+
+
 def upsert_definition(
     db: Session,
     *,
@@ -267,9 +285,12 @@ def upsert_definition(
     steps: list,
     code: str | None = None,
 ) -> WorkflowDefinition:
+    from sqlalchemy.orm.attributes import flag_modified
+
     normalized = normalize_steps_config(steps)
     if not normalized:
         raise ValueError("steps must be a non-empty list")
+    normalized = _canonicalize_steps_role_aliases(db, normalized)
 
     resolved_code = (code or ref_type).strip()
     row = get_definition_by_ref_type(db, ref_type)
@@ -277,6 +298,8 @@ def upsert_definition(
         row.name = name
         row.steps_config = normalized
         row.code = resolved_code
+        # JSONB: بدون flag_modified گاهی تغییر در PostgreSQL ذخیره نمی‌شود
+        flag_modified(row, "steps_config")
         db.commit()
         db.refresh(row)
         return row
@@ -291,6 +314,27 @@ def upsert_definition(
     db.commit()
     db.refresh(row)
     return row
+
+
+def ensure_definition(
+    db: Session,
+    *,
+    ref_type: str,
+    name: str,
+    steps: list,
+    code: str | None = None,
+    force: bool = False,
+) -> WorkflowDefinition | None:
+    """
+    فقط اگر تعریف وجود ندارد می‌سازد؛ مگر force=True.
+    برای seed/deploy تا تغییرات ادمین از UI بازنویسی نشوند.
+    """
+    existing = get_definition_by_ref_type(db, ref_type)
+    if existing and not force:
+        return None
+    return upsert_definition(
+        db, ref_type=ref_type, name=name, steps=steps, code=code
+    )
 
 
 def delete_definition(db: Session, ref_type: str) -> bool:

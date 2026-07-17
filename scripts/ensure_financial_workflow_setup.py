@@ -1,8 +1,15 @@
 """
-اعمال روال یکسان ۵مرحله‌ای مالی + نقش‌های کارشناس/سرپرست مالی.
+راه‌اندازی نقش‌های مالی و (اختیاری) بازنشانی تعریف‌های workflow مالی.
 
-  python scripts/ensure_financial_workflow_setup.py
+  # فقط نقش‌ها — تعریف‌های ذخیره‌شده در ادمین را دست نمی‌زند
   python scripts/ensure_financial_workflow_setup.py --ensure-roles
+
+  # فقط تعریف‌های ناموجود را بساز (موجودها را بازنویسی نکن)
+  python scripts/ensure_financial_workflow_setup.py --seed-missing-definitions
+
+  # بازنشانی اجباری تعریف‌ها به الگوی ثابت UNIFIED_FINANCIAL_STEPS
+  # (تغییرات ادمین را پاک می‌کند — فقط وقتی عمداً می‌خواهید)
+  python scripts/ensure_financial_workflow_setup.py --reset-definitions
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ from app.core.database import SessionLocal
 from app.models.role import Role
 from app.models.role_permission import RolePermission
 from app.models.permission import Permission
+from app.models.workflow_definition import WorkflowDefinition
 from app.services.workflow_definition_service import upsert_definition
 
 REF_DEFS = [
@@ -95,29 +103,73 @@ def ensure_roles(db) -> None:
     db.commit()
 
 
-def upsert_all(db) -> None:
+def upsert_missing_only(db) -> None:
+    """فقط اگر تعریف وجود ندارد، الگوی پیش‌فرض را می‌نویسد — تعریف ادمین را بازنویسی نمی‌کند."""
+    unified = list(UNIFIED_FINANCIAL_STEPS)
+    settlement = list(PETTY_CASH_SETTLEMENT_STEPS)
+    for ref_type, name in REF_DEFS:
+        exists = (
+            db.query(WorkflowDefinition.id)
+            .filter(WorkflowDefinition.ref_type == ref_type)
+            .first()
+        )
+        if exists:
+            print(
+                f"SKIP: workflow_definitions.{ref_type} already exists "
+                "(admin edits preserved)"
+            )
+            continue
+        steps = settlement if ref_type == WORKFLOW_REF_PETTY_CASH_SETTLEMENT else unified
+        upsert_definition(db, ref_type=ref_type, name=name, steps=steps)
+        print(f"CREATED: workflow_definitions.{ref_type}")
+
+
+def reset_all_definitions(db) -> None:
+    """بازنویسی اجباری با UNIFIED_FINANCIAL_STEPS — تغییرات ادمین پاک می‌شود."""
     unified = list(UNIFIED_FINANCIAL_STEPS)
     settlement = list(PETTY_CASH_SETTLEMENT_STEPS)
     for ref_type, name in REF_DEFS:
         steps = settlement if ref_type == WORKFLOW_REF_PETTY_CASH_SETTLEMENT else unified
         upsert_definition(db, ref_type=ref_type, name=name, steps=steps)
-        print(f"OK: workflow_definitions.{ref_type}")
-    db.commit()
+        print(f"RESET: workflow_definitions.{ref_type}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Financial workflow roles / definitions setup"
+    )
     parser.add_argument(
         "--ensure-roles",
         action="store_true",
         help="ایجاد نقش‌های finance_officer و finance_supervisor در صورت نبود",
     )
+    parser.add_argument(
+        "--reset-definitions",
+        action="store_true",
+        help="بازنویسی اجباری تعریف‌های مالی (تغییرات UI ادمین را پاک می‌کند)",
+    )
+    parser.add_argument(
+        "--seed-missing-definitions",
+        action="store_true",
+        help="فقط تعریف‌های ناموجود را با الگوی پیش‌فرض بساز (موجودها را دست نزن)",
+    )
     args = parser.parse_args()
+
+    if not (
+        args.ensure_roles or args.reset_definitions or args.seed_missing_definitions
+    ):
+        parser.error(
+            "حداقل یکی از --ensure-roles / --seed-missing-definitions / --reset-definitions لازم است"
+        )
+
     db = SessionLocal()
     try:
         if args.ensure_roles:
             ensure_roles(db)
-        upsert_all(db)
+        if args.reset_definitions:
+            reset_all_definitions(db)
+        elif args.seed_missing_definitions:
+            upsert_missing_only(db)
     finally:
         db.close()
 

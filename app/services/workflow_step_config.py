@@ -220,6 +220,43 @@ def _build_role_id_by_alias(db: Session) -> dict[str, int]:
     return role_id_by_name
 
 
+def _build_role_name_by_id(db: Session) -> dict[int, str]:
+    return {
+        r.id: r.name
+        for r in db.query(Role).all()
+        if r.id is not None and r.name
+    }
+
+
+def canonicalize_role_aliases(db: Session, aliases: list[str]) -> list[str]:
+    """
+    هر alias (name یا برچسب فارسی) را به Role.name پایدار تبدیل می‌کند و تکراری‌ها را حذف می‌کند.
+    برچسب‌های فارسی ذخیره‌شده در تعریف نباید بعد از تغییر نقش در UI دوباره به نقش قبلی resolve شوند.
+    """
+    role_id_by_alias = _build_role_id_by_alias(db)
+    role_name_by_id = _build_role_name_by_id(db)
+    out: list[str] = []
+    seen: set[int] = set()
+    for alias in aliases:
+        key = str(alias).strip().lower()
+        if not key:
+            continue
+        rid = role_id_by_alias.get(key)
+        if rid is None or rid in seen:
+            continue
+        name = role_name_by_id.get(rid)
+        if not name:
+            continue
+        seen.add(rid)
+        out.append(name)
+    if not out:
+        raise ValueError(
+            "هیچ نقش معتبری در role_aliases یافت نشد. "
+            "فقط نقش‌های موجود در سیستم را انتخاب کنید."
+        )
+    return out
+
+
 def resolve_role_ids_for_step(db: Session, step: dict) -> list[int]:
     """همه نقش‌های منطبق با role_aliases (OR) — حداقل یکی الزامی."""
     role_id_by_name = _build_role_id_by_alias(db)

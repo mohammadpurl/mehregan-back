@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 from app.core.database import SessionLocal
 from app.models.workflow_instance import WorkflowInstance
 from app.models.workflow_step import WorkflowStep
-from app.services.workflow_definition_service import get_steps_config, upsert_definition
+from app.services.workflow_definition_service import get_steps_config
 from app.services.workflow_step_config import (
     resolve_role_id_for_step,
     resolve_step_assignee_user,
@@ -96,18 +96,28 @@ def repair_pending_instances(db) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repair-instances", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="بازنویسی تعریف موجود (تغییرات ادمین پاک می‌شود)",
+    )
     args = parser.parse_args()
 
     db = SessionLocal()
     try:
-        upsert_definition(
+        from app.services.workflow_definition_service import ensure_definition
+
+        row = ensure_definition(
             db,
             ref_type="payment_order",
             name="دستور پرداخت",
             steps=PAYMENT_ORDER_STEPS,
+            force=args.force,
         )
-        db.commit()
-        print("OK: workflow definition payment_order (5 steps)")
+        if row:
+            print("OK: workflow definition payment_order created/updated")
+        else:
+            print("SKIP: payment_order already exists (admin edits preserved)")
 
         if args.repair_instances:
             n = repair_pending_instances(db)

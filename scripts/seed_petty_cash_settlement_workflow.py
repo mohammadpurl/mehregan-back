@@ -1,11 +1,6 @@
-"""
-گردش‌کار تأیید خرج تنخواه: مدیر مستقیم → مدیر مالی → مدیرعامل
+﻿from __future__ import annotations
 
-  python scripts/seed_petty_cash_settlement_workflow.py
-"""
-
-from __future__ import annotations
-
+import argparse
 import sys
 from pathlib import Path
 
@@ -18,19 +13,34 @@ from app.constants.petty_cash import (
     WORKFLOW_REF_PETTY_CASH_SETTLEMENT,
 )
 from app.core.database import SessionLocal
-from app.services.workflow_definition_service import upsert_definition
+from app.services.workflow_definition_service import ensure_definition
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="بازنویسی تعریف موجود (تغییرات ادمین پاک می‌شود)",
+    )
+    args = parser.parse_args()
+
     db = SessionLocal()
     try:
-        upsert_definition(
+        row = ensure_definition(
             db,
             ref_type=WORKFLOW_REF_PETTY_CASH_SETTLEMENT,
             name="تأیید خرج تنخواه",
             steps=list(PETTY_CASH_SETTLEMENT_STEPS),
+            force=args.force,
         )
-        print(f"OK: workflow_definitions.{WORKFLOW_REF_PETTY_CASH_SETTLEMENT}")
+        if row:
+            print(f"OK: workflow_definitions.{WORKFLOW_REF_PETTY_CASH_SETTLEMENT} created/updated")
+        else:
+            print(
+                f"SKIP: workflow_definitions.{WORKFLOW_REF_PETTY_CASH_SETTLEMENT} "
+                "already exists (admin edits preserved)"
+            )
     finally:
         db.close()
 

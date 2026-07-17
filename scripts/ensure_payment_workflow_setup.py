@@ -21,7 +21,7 @@ from app.models.role import Role
 from app.models.user_role import UserRole
 from app.models.workflow_instance import WorkflowInstance
 from app.models.workflow_step import WorkflowStep
-from app.services.workflow_definition_service import get_steps_config, upsert_definition
+from app.services.workflow_definition_service import get_steps_config
 from app.services.workflow_step_config import (
     resolve_role_id_for_step,
     resolve_step_assignee_user,
@@ -119,17 +119,28 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--finance-user-id", type=int, default=None)
     parser.add_argument("--repair-instances", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="بازنویسی تعریف موجود (تغییرات ادمین پاک می‌شود)",
+    )
     args = parser.parse_args()
 
     db = SessionLocal()
     try:
-        upsert_definition(
+        from app.services.workflow_definition_service import ensure_definition
+
+        row = ensure_definition(
             db,
             ref_type="payment_request",
             name="درخواست مالی (وام/مساعده/پرداخت)",
             steps=PAYMENT_REQUEST_STEPS,
+            force=args.force,
         )
-        print("OK: workflow_definitions.payment_request updated")
+        if row:
+            print("OK: workflow_definitions.payment_request created/updated")
+        else:
+            print("SKIP: payment_request already exists (admin edits preserved)")
 
         ensure_finance_role(db, args.finance_user_id)
 

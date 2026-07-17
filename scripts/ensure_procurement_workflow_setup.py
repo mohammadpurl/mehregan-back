@@ -51,7 +51,7 @@ from app.models.workflow_instance import WorkflowInstance
 
 from app.models.workflow_step import WorkflowStep
 
-from app.services.workflow_definition_service import get_steps_config, upsert_definition
+from app.services.workflow_definition_service import get_steps_config
 
 from app.services.workflow_step_config import (
 
@@ -400,68 +400,35 @@ def repair_pending_instances(db, ref_type: str) -> int:
 
 
 def main() -> None:
-
     parser = argparse.ArgumentParser()
-
     parser.add_argument(
-
         "--repair-instances",
-
         action="store_true",
-
         help="هم‌راستاسازی مراحل pending با تعریف فعلی",
-
     )
-
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="بازنویسی تعریف‌های موجود (تغییرات ادمین پاک می‌شود)",
+    )
     args = parser.parse_args()
 
-
-
     db = SessionLocal()
-
     try:
+        from app.services.workflow_definition_service import ensure_definition
 
-        upsert_definition(
-
-            db,
-
-            ref_type=WORKFLOW_REF_PURCHASE,
-
-            name="درخواست خرید کالا (یکپارچه)",
-
-            steps=PURCHASE_REQUEST_STEPS,
-
-        )
-
-        print("OK: workflow definition 'purchase_request' (unified)")
-
-        upsert_definition(
-
-            db,
-
-            ref_type=WORKFLOW_REF_REQUEST,
-
-            name="درخواست خرید (legacy)",
-
-            steps=REQUEST_STEPS,
-
-        )
-
-        print("OK: workflow definition 'request' (legacy)")
-
-        upsert_definition(
-
-            db,
-
-            ref_type=WORKFLOW_REF_PROFORMA,
-
-            name="پیش‌فاکتور خرید (legacy)",
-
-            steps=PROFORMA_STEPS,
-
-        )
-
-        print("OK: workflow definition 'procurement_proforma' (legacy)")
+        for ref_type, name, steps in (
+            (WORKFLOW_REF_PURCHASE, "درخواست خرید کالا (یکپارچه)", PURCHASE_REQUEST_STEPS),
+            (WORKFLOW_REF_REQUEST, "درخواست خرید (legacy)", REQUEST_STEPS),
+            (WORKFLOW_REF_PROFORMA, "پیش‌فاکتور خرید (legacy)", PROFORMA_STEPS),
+        ):
+            row = ensure_definition(
+                db, ref_type=ref_type, name=name, steps=steps, force=args.force
+            )
+            if row:
+                print(f"OK: workflow definition '{ref_type}' created/updated")
+            else:
+                print(f"SKIP: '{ref_type}' already exists (admin edits preserved)")
 
         n_alias = sync_ceo_aliases_in_definitions(db)
         if n_alias:
@@ -471,17 +438,11 @@ def main() -> None:
             print(f"OK: activated ceo role for {n_ceo} user(s) (from managing_director)")
 
         if args.repair_instances:
-
             n0 = repair_pending_instances(db, WORKFLOW_REF_PURCHASE)
-
             n1 = repair_pending_instances(db, WORKFLOW_REF_REQUEST)
-
             n2 = repair_pending_instances(db, WORKFLOW_REF_PROFORMA)
-
             print(f"Repaired {n0 + n1 + n2} step assignment(s)")
-
     finally:
-
         db.close()
 
 

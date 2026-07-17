@@ -9,11 +9,20 @@ from app.services.permission import user_has_permission_db
 from app.dependencies.pagination import ListQueryParams, get_list_params, paginated_response
 from app.schemas.workflow_definition import (
     WorkflowAssigneePreview,
+    WorkflowAssigneePreviewRequest,
     WorkflowDefinitionUpsert,
 )
 from app.services import workflow_definition_service as wfdef_svc
 
 router = APIRouter(prefix="/workflow-definitions", tags=["Workflow definitions"])
+
+
+def _guard_preview_submitter(db: Session, user, submitter_id: int) -> None:
+    if submitter_id != user.id and not user_has_permission_db(db, user.id, "admin.manage"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="فقط برای ثبت‌کننده خود یا ادمین مجاز است",
+        )
 
 
 @router.get("/")
@@ -41,13 +50,29 @@ def preview_assignees(
     db: Session = Depends(get_db),
     user=Depends(require_any_permission(*WORKFLOW_READ)),
 ):
-    """پیش‌نمایش تأییدکنندگان هر مرحله برای یک ثبت‌کننده."""
-    if submitter_id != user.id and not user_has_permission_db(db, user.id, "admin.manage"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="فقط برای ثبت‌کننده خود یا ادمین مجاز است",
-        )
+    """پیش‌نمایش تأییدکنندگان هر مرحله برای یک ثبت‌کننده (از تعریف ذخیره‌شده)."""
+    _guard_preview_submitter(db, user, submitter_id)
     return wfdef_svc.preview_assignees(db, ref_type, submitter_id=submitter_id)
+
+
+@router.post("/{ref_type}/assignees-preview", response_model=list[WorkflowAssigneePreview])
+def preview_assignees_draft(
+    ref_type: str,
+    payload: WorkflowAssigneePreviewRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_any_permission(*WORKFLOW_READ)),
+):
+    """پیش‌نمایش روی پیش‌نویس مراحل فرم ادمین (قبل از ذخیره)."""
+    _guard_preview_submitter(db, user, payload.submitter_id)
+    try:
+        return wfdef_svc.preview_assignees(
+            db,
+            ref_type,
+            submitter_id=payload.submitter_id,
+            steps_override=payload.steps,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/{ref_type}")
@@ -75,13 +100,16 @@ def upsert_definition(
             detail="ref_type in path and body must match",
         )
     steps_payload = [s.model_dump() for s in payload.steps]
-    return wfdef_svc.upsert_definition(
-        db,
-        ref_type=payload.ref_type,
-        name=payload.name,
-        steps=steps_payload,
-        code=payload.code,
-    )
+    try:
+        return wfdef_svc.upsert_definition(
+            db,
+            ref_type=payload.ref_type,
+            name=payload.name,
+            steps=steps_payload,
+            code=payload.code,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.delete("/{ref_type}", status_code=status.HTTP_204_NO_CONTENT)

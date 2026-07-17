@@ -51,6 +51,21 @@ class WorkflowStepConfig(BaseModel):
         return value
 
 
+class WorkflowAssigneePreviewRequest(BaseModel):
+    """پیش‌نمایش با مراحل پیش‌نویس فرم (قبل از ذخیره)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    submitter_id: int = Field(
+        ...,
+        validation_alias=AliasChoices("submitterId", "submitter_id"),
+    )
+    steps: list[Any] = Field(
+        ...,
+        description="مراحل فعلی فرم ادمین (dict با roleAliases یا role_aliases)",
+    )
+
+
 class WorkflowDefinitionUpsert(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
