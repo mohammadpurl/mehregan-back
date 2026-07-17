@@ -30,7 +30,10 @@ from app.services.mission_request_list_scope import (
 )
 from app.services.payment_request_list_scope import assert_scope_allowed
 from app.services.query_utils import apply_search_filter, apply_sort
-from app.services.workflow_cleanup import cancel_workflow_for_ref
+from app.services.workflow_cleanup import (
+    cancel_workflows_for_refs,
+    ensure_request_deletable,
+)
 from app.services.workflow_definition_service import assert_workflow_assignees_ready
 from app.services.workflow_start import start_workflow_instance
 from app.services.workflow_step_access import user_can_act_on_workflow_step
@@ -343,8 +346,9 @@ def delete_mission_request(db: Session, request_id: int, user_id: int) -> None:
         raise ValueError("access denied")
     if row.status != STATUS_PENDING:
         raise ValueError("فقط درخواست در انتظار تأیید قابل حذف است")
-    cancel_workflow_for_ref(db, REF_TYPE, request_id)
-    cancel_workflow_for_ref(db, WORKFLOW_REF_MISSION_REPORT, request_id)
+    refs = (REF_TYPE, WORKFLOW_REF_MISSION_REPORT)
+    ensure_request_deletable(db, ref_types=refs, ref_id=request_id)
+    cancel_workflows_for_refs(db, refs, request_id)
     delete_all_for_entity(db, ENTITY_MISSION_REQUEST, request_id)
     db.delete(row)
     db.commit()

@@ -35,7 +35,7 @@ from app.services.attachment_service import (
     list_attachments,
     serialize_attachment,
 )
-from app.services.workflow_cleanup import cancel_workflow_for_ref
+from app.services.workflow_cleanup import cancel_workflows_for_refs, ensure_request_deletable
 from app.models.user import User
 from app.services.payment_request_access import (
     get_payment_request_by_workflow_instance,
@@ -593,8 +593,12 @@ def delete_payment_request(db: Session, request_id: int, *, user) -> None:
     req = db.get(PaymentRequest, request_id)
     if not req:
         raise ValueError("payment request not found")
-    assert_payment_edit_as_requester(db, user, req)
-    cancel_workflow_for_ref(db, "payment_request", request_id)
+    if not user_can_edit_payment_request_as_requester(user, req):
+        raise ValueError("access denied")
+    ensure_editable(req)
+    refs = ("payment_request", WORKFLOW_REF_PAYMENT_ORDER)
+    ensure_request_deletable(db, ref_types=refs, ref_id=request_id)
+    cancel_workflows_for_refs(db, refs, request_id)
     delete_all_for_entity(db, ENTITY_PAYMENT_REQUEST, request_id)
     db.delete(req)
     db.commit()

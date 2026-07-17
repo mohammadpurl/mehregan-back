@@ -6,6 +6,10 @@ from app.models.workflow_form import WorkflowForm
 from app.schemas.forms import WorkflowFormUpdate
 from app.services.crud_utils import ensure_editable
 from app.services.query_utils import apply_equal_filter, apply_search_filter, apply_sort
+from app.services.workflow_cleanup import (
+    cancel_workflow_for_ref,
+    ensure_request_deletable,
+)
 
 
 def create_workflow_form(
@@ -110,5 +114,7 @@ def delete_workflow_form(
     if requester_id is not None and form.requester_id != requester_id:
         raise ValueError("access denied")
     ensure_editable(form)
+    ensure_request_deletable(db, ref_types="workflow_form", ref_id=form_id)
+    cancel_workflow_for_ref(db, "workflow_form", form_id)
     db.delete(form)
     db.commit()

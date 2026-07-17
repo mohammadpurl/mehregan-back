@@ -5,8 +5,13 @@ from app.infrastructure.messaging.publisher import publish_event
 from app.models.request import Request
 from app.models.request_item import RequestItem
 from app.schemas.request import RequestItemInput, UpdateRequestInput
+from app.constants.procurement import PURCHASE_WORKFLOW_REFS
 from app.services.crud_utils import ensure_editable
 from app.services.query_utils import apply_equal_filter, apply_search_filter, apply_sort
+from app.services.workflow_cleanup import (
+    cancel_workflows_for_refs,
+    ensure_request_deletable,
+)
 
 
 def create_request(
@@ -125,6 +130,8 @@ def delete_request(
     if requester_id is not None and request.requester_id != requester_id:
         raise ValueError("access denied")
     ensure_editable(request)
+    ensure_request_deletable(db, ref_types=PURCHASE_WORKFLOW_REFS, ref_id=request_id)
+    cancel_workflows_for_refs(db, PURCHASE_WORKFLOW_REFS, request_id)
     db.query(RequestItem).filter_by(request_id=request_id).delete()
     db.delete(request)
     db.commit()

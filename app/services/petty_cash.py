@@ -39,7 +39,10 @@ from app.services.petty_cash_list_scope import (
     user_can_access_petty_cash_extended,
 )
 from app.services.payment_request_list_scope import assert_scope_allowed
-from app.services.workflow_cleanup import cancel_workflow_for_ref
+from app.services.workflow_cleanup import (
+    cancel_workflows_for_refs,
+    ensure_request_deletable,
+)
 from app.services.workflow_definition_service import assert_workflow_assignees_ready
 from app.services.workflow_start import start_workflow_instance
 from app.services.workflow_step_access import user_can_act_on_workflow_step
@@ -488,7 +491,9 @@ def delete_petty_cash_request(db: Session, request_id: int, user_id: int) -> Non
     row = _get_owned_request(db, request_id, user_id)
     if row.status != STATUS_PENDING:
         raise ValueError("فقط درخواست در انتظار تأیید قابل حذف است")
-    cancel_workflow_for_ref(db, "petty_cash", request_id)
+    refs = ("petty_cash", WORKFLOW_REF_PETTY_CASH_SETTLEMENT)
+    ensure_request_deletable(db, ref_types=refs, ref_id=request_id)
+    cancel_workflows_for_refs(db, refs, request_id)
     delete_all_for_entity(db, ENTITY_PETTY_CASH, request_id)
     db.query(PettyCashExpenseLine).filter_by(petty_cash_request_id=request_id).delete(
         synchronize_session=False

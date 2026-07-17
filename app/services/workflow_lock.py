@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models.workflow_instance import WorkflowInstance
-from app.models.workflow_step import WorkflowStep
+from app.services.workflow_cleanup import workflow_has_approved_step_for_refs
 
 
 def active_workflow_instance(
@@ -24,27 +24,8 @@ def active_workflow_instance(
 
 
 def workflow_has_approved_step_for_ref(db: Session, *, ref_type: str, ref_id: int) -> bool:
-    inst = active_workflow_instance(db, ref_type=ref_type, ref_id=ref_id)
-    if not inst:
-        inst = (
-            db.query(WorkflowInstance)
-            .filter(
-                WorkflowInstance.ref_type == ref_type,
-                WorkflowInstance.ref_id == ref_id,
-            )
-            .order_by(WorkflowInstance.id.desc())
-            .first()
-        )
-    if not inst:
-        return False
-    return (
-        db.query(WorkflowStep)
-        .filter(
-            WorkflowStep.instance_id == inst.id,
-            WorkflowStep.status == "approved",
-        )
-        .count()
-        > 0
+    return workflow_has_approved_step_for_refs(
+        db, ref_types=(ref_type,), ref_id=ref_id
     )
 
 

@@ -8,6 +8,10 @@ from app.models.warehouse_form import WarehouseForm
 from app.schemas.forms import WarehouseFormUpdate
 from app.services.crud_utils import ensure_editable
 from app.services.query_utils import apply_equal_filter, apply_search_filter, apply_sort
+from app.services.workflow_cleanup import (
+    cancel_workflow_for_ref,
+    ensure_request_deletable,
+)
 
 
 def create_warehouse_form(
@@ -138,5 +142,7 @@ def delete_warehouse_form(
     if requester_id is not None and form.requester_id != requester_id:
         raise ValueError("access denied")
     ensure_editable(form)
+    ensure_request_deletable(db, ref_types="warehouse_form", ref_id=form_id)
+    cancel_workflow_for_ref(db, "warehouse_form", form_id)
     db.delete(form)
     db.commit()
