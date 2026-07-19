@@ -1,9 +1,11 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.constants.financial_document import FINANCIAL_DOCUMENT_STEPS
 from app.constants.financial_workflow import UNIFIED_FINANCIAL_STEPS
 from app.constants.mission_request import MISSION_REPORT_STEPS
 from app.constants.petty_cash import PETTY_CASH_SETTLEMENT_STEPS
+from app.constants.purchase_workflow_steps import PURCHASE_REQUEST_STEPS
 from app.models.user import User
 from app.models.workflow_definition import WorkflowDefinition
 from app.services.query_utils import apply_search_filter, apply_sort
@@ -22,66 +24,13 @@ DEFAULT_ROLE_STEPS: dict[str, list[list[str]]] = {
     "workflow_form": [["manager", "project_manager", "مدیر پروژه"]],
     "payment_request": _UNIFIED,
     "payment_order": _UNIFIED,
-    "financial_document": _UNIFIED,
+    "financial_document": list(FINANCIAL_DOCUMENT_STEPS),
     "warehouse_form": [
         ["warehouse_manager", "warehouse", "مسئول انبار"],
         ["finance_manager", "accountant", "مدیر مالی"],
         ["ceo", "managing_director", "مدیرعامل"],
     ],
-    "purchase_request": [
-        {
-            "order": 1,
-            "label": "تأیید مدیر مالی",
-            "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-            "assignee_strategy": "role_pool",
-            "step_action": "approval",
-        },
-        {
-            "order": 2,
-            "label": "تأیید مدیرعامل — درخواست",
-            "role_aliases": ["ceo", "managing_director", "مدیرعامل"],
-            "assignee_strategy": "role_pool",
-            "step_action": "approval",
-        },
-        {
-            "order": 3,
-            "label": "ثبت و ارسال پیش‌فاکتور — مسئول خرید",
-            "role_aliases": [
-                "purchase_officer",
-                "purchase_manager",
-                "مسئول خرید",
-                "مدیر خرید",
-            ],
-            "assignee_strategy": "role_pool",
-            "step_action": "upload_proforma",
-        },
-        {
-            "order": 4,
-            "label": "تأیید پیش‌فاکتور و روش پرداخت — مدیرعامل",
-            "role_aliases": ["ceo", "managing_director", "مدیرعامل"],
-            "assignee_strategy": "role_pool",
-            "step_action": "approve_proforma",
-        },
-        {
-            "order": 5,
-            "label": "بارگذاری فاکتور — مسئول خرید",
-            "role_aliases": [
-                "purchase_officer",
-                "purchase_manager",
-                "مسئول خرید",
-                "مدیر خرید",
-            ],
-            "assignee_strategy": "role_pool",
-            "step_action": "upload_invoice",
-        },
-        {
-            "order": 6,
-            "label": "تأیید پرداخت فاکتور — مدیر مالی",
-            "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-            "assignee_strategy": "role_pool",
-            "step_action": "confirm_payment",
-        },
-    ],
+    "purchase_request": list(PURCHASE_REQUEST_STEPS),
     "request": [
         {
             "order": 1,

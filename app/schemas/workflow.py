@@ -52,7 +52,17 @@ class WorkflowApproveRequest(BaseModel):
     payment_method: str | None = Field(
         None,
         validation_alias="paymentMethod",
-        description="دستور پرداخت: check (چک) یا transfer (حواله)",
+        description="خرید: cash/check — دستور پرداخت: check/transfer",
+    )
+    payment_location: str | None = Field(
+        None,
+        validation_alias="paymentLocation",
+        description="خرید: bank یا petty_cash",
+    )
+    check_plan: list[dict] | None = Field(
+        None,
+        validation_alias="checkPlan",
+        description="خرید چکی: [{amount, dueDate}, ...]",
     )
     payment_executed: bool = Field(
         False,

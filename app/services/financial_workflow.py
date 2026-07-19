@@ -23,7 +23,11 @@ from app.models.workflow_step import WorkflowStep
 from app.services.inbox import mark_inbox_done_for_workflow
 from app.services.workflow_approval_log import record_workflow_decision
 from app.services.workflow_notifications import notify_workflow_next_step
-from app.services.workflow_step_access import user_can_act_on_workflow_step
+from app.services.workflow_auto_skip import can_auto_skip_next_approval_step
+from app.services.workflow_step_access import (
+    AUTO_SKIP_COMMENT,
+    user_can_act_on_workflow_step,
+)
 from app.services.workflow_step_config import get_step_config_at_order
 
 _ACTIVE_STATUSES = ("pending", "in_progress", "active")
@@ -103,6 +107,22 @@ def get_sepidar_registered_at(entity) -> datetime | None:
     return getattr(entity, "sepidar_registered_at", None)
 
 
+def financial_numbers_locked(entity) -> bool:
+    """پس از ثبت پرداخت در سپیدار، مبلغ/تاریخ/شرایط مالی قفل است."""
+    return get_sepidar_registered_at(entity) is not None
+
+
+def assert_financial_numbers_unlocked(entity) -> None:
+    if financial_numbers_locked(entity):
+        raise ValueError(
+            "پس از ثبت در سپیدار، تغییر مبلغ، تاریخ پرداخت و شرایط مالی مجاز نیست"
+        )
+
+
+def load_financial_entity(db: Session, ref_type: str, ref_id: int):
+    return _load_entity(db, ref_type, int(ref_id))
+
+
 def mark_sepidar_registered(entity, user: User) -> None:
     now = datetime.utcnow()
     if hasattr(entity, "payment_marked_at"):
@@ -146,6 +166,17 @@ def complete_mark_payment_step(
     entity = _load_entity(db, instance.ref_type, int(instance.ref_id))
     if not entity:
         raise ValueError("درخواست مالی یافت نشد")
+
+    if instance.ref_type == "financial_document":
+        from app.services.attachment_service import (
+            ENTITY_FINANCIAL_DOCUMENT,
+            list_attachments,
+        )
+
+        if not list_attachments(db, ENTITY_FINANCIAL_DOCUMENT, int(instance.ref_id)):
+            raise ValueError(
+                "قبل از ثبت در سپیدار، حداقل یک تصویر از سند را بارگذاری کنید"
+            )
 
     mark_sepidar_registered(entity, user)
     _complete_step_record(
@@ -249,24 +280,42 @@ def advance_workflow_after_step(
     completed_order: int,
     actor: User,
 ) -> None:
+    """
+    پس از تأیید یک مرحله: اگر مرحله(های) بعدی تأیید ساده، مسئول همان نفر،
+    و بدون نیاز به ورود/تغییر داده باشند → auto-skip؛ وگرنه اطلاع به نفر بعد.
+    """
+    _ = completed_order
     inst = db.get(WorkflowInstance, instance_id)
     if not inst or not is_financial_ref_type(inst.ref_type):
         return
 
-    next_step = _pending_step(db, instance_id)
-    if next_step:
+    while True:
+        next_step = _pending_step(db, instance_id)
+        if not next_step:
+            inst.status = "approved"
+            db.commit()
+            publish_event(
+                WORKFLOW_APPROVED,
+                {
+                    "instance_id": inst.id,
+                    "ref_type": inst.ref_type,
+                    "ref_id": inst.ref_id,
+                    "user_id": actor.id,
+                },
+            )
+            return
+
+        if can_auto_skip_next_approval_step(db, inst, actor, next_step):
+            _complete_step_record(
+                db,
+                next_step,
+                actor,
+                comment=AUTO_SKIP_COMMENT,
+            )
+            mark_inbox_done_for_workflow(db, instance_id, user_id=actor.id)
+            db.flush()
+            continue
+
         _notify_next(db, inst, next_step)
         db.commit()
         return
-
-    inst.status = "approved"
-    db.commit()
-    publish_event(
-        WORKFLOW_APPROVED,
-        {
-            "instance_id": inst.id,
-            "ref_type": inst.ref_type,
-            "ref_id": inst.ref_id,
-            "user_id": actor.id,
-        },
-    )

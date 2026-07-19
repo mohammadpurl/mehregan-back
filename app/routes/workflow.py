@@ -187,6 +187,8 @@ def approve(
             payer_company_account_id=payload.payer_company_account_id,
             payer_account=payload.payer_account,
             payment_method=payload.payment_method,
+            payment_location=payload.payment_location,
+            check_plan=payload.check_plan,
             payment_executed=payload.payment_executed,
             sepidar_confirmed=payload.sepidar_confirmed,
         )

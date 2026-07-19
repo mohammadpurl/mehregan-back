@@ -3,14 +3,17 @@
 REQUEST_TYPE_PURCHASE = "purchase"
 REQUEST_TYPE_INTERNAL = "internal"
 
-# مرحله ۱: تأیید درخواست
 STATUS_PENDING = "pending"
+STATUS_AWAITING_STOCK = "awaiting_stock"
 STATUS_AWAITING_PROFORMA = "awaiting_proforma"
-# مرحله ۲: پیش‌فاکتور
 STATUS_PROFORMA_REVIEW = "proforma_review"
 STATUS_READY_FOR_PAYMENT = "ready_for_payment"
 STATUS_AWAITING_INVOICE = "awaiting_invoice"
+STATUS_AWAITING_PAYMENT_EXECUTION = "awaiting_payment_execution"
 STATUS_PAYMENT_PENDING = "payment_pending"
+STATUS_AWAITING_BOL = "awaiting_bol"
+STATUS_AWAITING_RECEIPT = "awaiting_receipt"
+STATUS_AWAITING_WAREHOUSE_POST = "awaiting_warehouse_post"
 STATUS_RECEIVING = "receiving"
 STATUS_COMPLETED = "completed"
 

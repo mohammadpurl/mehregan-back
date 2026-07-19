@@ -60,6 +60,7 @@ def create_loan_request_api(
             amount=payload.amount,
             payment_date=payload.payment_date,
             reason=payload.reason,
+            title=payload.title,
             assignees_by_order=payload.assignees_by_order,
         )
     except ValueError as err:
@@ -83,6 +84,7 @@ def create_advance_request_api(
             amount=payload.amount,
             payment_date=payload.payment_date,
             reason=payload.reason,
+            title=payload.title,
             assignees_by_order=payload.assignees_by_order,
         )
     except ValueError as err:
@@ -113,6 +115,7 @@ def create_payment_order_api(
             receiver_account_number=payload.receiver_account_number,
             payment_date=payload.payment_date,
             reason=payload.reason,
+            title=payload.title,
             assignees_by_order=payload.assignees_by_order,
         )
     except ValueError as err:
@@ -153,6 +156,7 @@ def create_payment_request_api(
             receiver_account=receiver_account,
             payment_date=payload.payment_date,
             reason=payload.reason,
+            title=payload.title,
             assignees_by_order=payload.assignees_by_order,
             counterparty_id=payload.counterparty_id,
             payer_company_account_id=payer_company_account_id,

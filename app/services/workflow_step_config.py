@@ -157,6 +157,14 @@ def normalize_step(raw: Any, *, order: int) -> dict:
     if step_action is not None:
         step_action = str(step_action).strip() or None
 
+    allow_auto_skip = raw.get("allow_auto_skip")
+    if allow_auto_skip is None:
+        allow_auto_skip = raw.get("allowAutoSkip")
+    if allow_auto_skip is None:
+        allow_auto_skip = True
+    else:
+        allow_auto_skip = bool(allow_auto_skip)
+
     return {
         "order": int(raw.get("order") or order),
         "role_aliases": aliases,
@@ -164,6 +172,7 @@ def normalize_step(raw: Any, *, order: int) -> dict:
         "assignee_user_id": assignee_user_id,
         "label": raw.get("label"),
         "step_action": step_action,
+        "allow_auto_skip": allow_auto_skip,
     }
 
 
@@ -627,4 +636,6 @@ def serialize_step_for_api(step: dict, *, role_id: int | None = None) -> dict:
         "assignee_strategy": step["assignee_strategy"],
         "assignee_user_id": step.get("assignee_user_id"),
         "label": step.get("label"),
+        "step_action": step.get("step_action"),
+        "allow_auto_skip": step.get("allow_auto_skip", True),
     }

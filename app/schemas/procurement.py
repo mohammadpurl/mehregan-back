@@ -6,31 +6,62 @@ from app.schemas.attachment import AttachmentOut
 
 
 class PurchaseLineInput(BaseModel):
-    item_id: int | None = Field(None, gt=0)
-    item_name: str = Field(..., min_length=1, max_length=300)
+    model_config = ConfigDict(populate_by_name=True)
+
+    item_id: int | None = Field(None, gt=0, validation_alias="itemId")
+    item_name: str = Field(..., min_length=1, max_length=300, validation_alias="itemName")
     quantity: int = Field(..., gt=0)
     description: str | None = Field(None, max_length=2000)
+    unit: str | None = Field(None, max_length=50)
+    supply_source: str | None = Field(
+        None, max_length=200, validation_alias="supplySource"
+    )
+    warehouse_stock: float | None = Field(
+        None, validation_alias="warehouseStock", ge=0
+    )
 
 
 class CreatePurchaseRequestInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str | None = Field(None, max_length=255)
     reason: str | None = Field(None, max_length=2000)
+    warehouse_id: int = Field(..., gt=0, validation_alias="warehouseId")
     lines: list[PurchaseLineInput] = Field(min_length=1)
-    assignees_by_order: dict[str, int] | None = None
+    assignees_by_order: dict[str, int] | None = Field(
+        None, validation_alias="assigneesByOrder"
+    )
 
 
 class UpdatePurchaseRequestInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     reason: str | None = Field(None, max_length=2000)
     lines: list[PurchaseLineInput] = Field(min_length=1)
 
 
+class UpdatePurchaseStockInput(BaseModel):
+    """سرپرست مالی: به‌روزرسانی موجودی انبار اقلام."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    items: list[dict] = Field(
+        ...,
+        description="[{id, warehouseStock}]",
+    )
+
+
 class PurchaseLineOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: int
-    item_name: str | None = None
+    item_name: str | None = Field(None, serialization_alias="itemName")
     quantity: int
     description: str | None = None
-    item_id: int | None = None
+    item_id: int | None = Field(None, serialization_alias="itemId")
+    unit: str | None = None
+    supply_source: str | None = Field(None, serialization_alias="supplySource")
+    warehouse_stock: float | None = Field(None, serialization_alias="warehouseStock")
 
 
 class WorkflowProgressStepOut(BaseModel):
@@ -85,10 +116,16 @@ class PurchaseRequestOut(BaseModel):
     id: int
     type: str
     status: str
+    title: str | None = None
     requester_id: int = Field(serialization_alias="requesterId")
     requester_name: str | None = Field(None, serialization_alias="requesterName")
     reason: str | None = None
+    warehouse_id: int | None = Field(None, serialization_alias="warehouseId")
+    warehouse_name: str | None = Field(None, serialization_alias="warehouseName")
     items: list[PurchaseLineOut] = Field(default_factory=list)
+    can_edit_items: bool = Field(False, serialization_alias="canEditItems")
+    can_edit_stock: bool = Field(False, serialization_alias="canEditStock")
+    current_step_action: str | None = Field(None, serialization_alias="currentStepAction")
     workflow_instance_id: int | None = Field(None, serialization_alias="workflowInstanceId")
     workflow_progress: list[WorkflowProgressPhaseOut] | None = Field(
         None, serialization_alias="workflowProgress"
@@ -101,14 +138,28 @@ class PurchaseRequestOut(BaseModel):
     )
     attachments: list[AttachmentOut] = Field(default_factory=list)
     invoices: list[AttachmentOut] = Field(default_factory=list)
+    payment_slips: list[AttachmentOut] = Field(
+        default_factory=list, serialization_alias="paymentSlips"
+    )
+    bills_of_lading: list[AttachmentOut] = Field(
+        default_factory=list, serialization_alias="billsOfLading"
+    )
     approved_payment_method: str | None = Field(
         None, serialization_alias="approvedPaymentMethod"
     )
     approved_payment_comment: str | None = Field(
         None, serialization_alias="approvedPaymentComment"
     )
+    payment_location: str | None = Field(None, serialization_alias="paymentLocation")
+    check_plan: list | None = Field(None, serialization_alias="checkPlan")
     invoice_paid_at: datetime | None = Field(None, serialization_alias="invoicePaidAt")
     invoice_paid_by: int | None = Field(None, serialization_alias="invoicePaidBy")
+    sepidar_registered_at: datetime | None = Field(
+        None, serialization_alias="sepidarRegisteredAt"
+    )
+    sepidar_confirmed_at: datetime | None = Field(
+        None, serialization_alias="sepidarConfirmedAt"
+    )
     created_at: datetime | None = None
 
 

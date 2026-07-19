@@ -1,6 +1,8 @@
 from datetime import datetime
-from sqlalchemy import ForeignKey, String, DateTime
+
+from sqlalchemy import JSON, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.core.database import Base
 
 
@@ -16,5 +18,7 @@ class WorkflowApproval(Base):
     decision: Mapped[str] = mapped_column(String)
 
     comment: Mapped[str | None] = mapped_column(nullable=True)
+    # لیست تغییرات شرایط مالی در همان تأیید: [{field, label, oldValue, newValue}, ...]
+    field_changes: Mapped[list | dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)

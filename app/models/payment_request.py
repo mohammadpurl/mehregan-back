@@ -10,6 +10,7 @@ class PaymentRequest(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
     requester_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     counterparty_id: Mapped[int | None] = mapped_column(
         ForeignKey("counterparties.id"), nullable=True

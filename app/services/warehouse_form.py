@@ -23,14 +23,27 @@ def create_warehouse_form(
     receiver_name: str | None,
     effective_date: date | None,
     description: str | None,
+    title: str | None = None,
     assignees_by_order: dict[str, int] | None = None,
 ):
+    from app.models.user import User
+    from app.services.request_title import resolve_request_title, user_display_name
+    from app.services.workflow_messages import REF_TYPE_LABELS
+
     resolved_effective_date = effective_date
     if isinstance(effective_date, str) and effective_date:
         resolved_effective_date = date.fromisoformat(effective_date)
 
+    requester = db.get(User, requester_id)
+    resolved_title = resolve_request_title(
+        title=title,
+        type_label=REF_TYPE_LABELS.get("warehouse_form", "فرم انبار"),
+        requester_name=user_display_name(requester),
+    )
+
     form = WarehouseForm(
         requester_id=requester_id,
+        title=resolved_title,
         form_type=form_type,
         source=source,
         destination=destination,
@@ -73,7 +86,15 @@ def list_warehouse_forms(
         query,
         WarehouseForm,
         search,
-        ["form_type", "source", "destination", "receiver_name", "description", "status"],
+        [
+            "title",
+            "form_type",
+            "source",
+            "destination",
+            "receiver_name",
+            "description",
+            "status",
+        ],
     )
     query = apply_sort(query, WarehouseForm, sort_by, sort_order)
     return query.offset(offset).limit(limit).all()

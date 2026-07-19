@@ -13,6 +13,7 @@ from app.models.workflow_approval import WorkflowApproval
 from app.services.workflow_step_kinds import step_is_financial
 from app.services.procurement.purchase_workflow import step_action_for_order
 from app.services.workflow_step_config import get_step_display_label
+from app.services.workflow_terms_history import serialize_field_changes_for_api
 
 REF_TYPE_PHASE_LABELS: dict[str, str] = {
     "purchase_request": "درخواست خرید کالا",
@@ -108,6 +109,7 @@ def get_instance_approval_plan(db: Session, instance_id: int) -> dict | None:
             prev_assignee_id = st.assigned_user_id
 
     step_order_by_id = {st.id: st.order for st in steps}
+    field_changes_by_step: dict[int, list] = {}
     history_rows: list[dict] = []
     for row in (
         db.query(WorkflowApproval)
@@ -116,6 +118,9 @@ def get_instance_approval_plan(db: Session, instance_id: int) -> dict | None:
         .all()
     ):
         actor = db.get(User, row.approved_by)
+        field_changes = serialize_field_changes_for_api(row.field_changes)
+        if field_changes and row.step_id is not None:
+            field_changes_by_step[row.step_id] = field_changes
         history_rows.append(
             {
                 "stepId": row.step_id,
@@ -125,8 +130,12 @@ def get_instance_approval_plan(db: Session, instance_id: int) -> dict | None:
                 "approvedBy": row.approved_by,
                 "approvedByName": _display_name(actor),
                 "createdAt": row.created_at.isoformat() if row.created_at else None,
+                "fieldChanges": field_changes,
             }
         )
+
+    for step_row in step_rows:
+        step_row["fieldChanges"] = field_changes_by_step.get(step_row["id"])
 
     from app.services.workflow_step_attachment import collect_plan_attachments
 

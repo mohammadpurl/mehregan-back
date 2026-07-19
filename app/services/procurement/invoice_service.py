@@ -92,23 +92,35 @@ def list_purchase_invoices(db: Session, request_id: int) -> list[dict]:
 
 
 def mark_invoice_paid(db: Session, *, request_id: int, user: User) -> dict:
+    """سازگاری قدیمی: تکمیل مرحله mark_payment (ثبت سپیدار + فیش)."""
+    from app.constants.procurement import (
+        STATUS_AWAITING_PAYMENT_EXECUTION,
+        WORKFLOW_REF_PURCHASE,
+    )
+    from app.services.attachment_service import ENTITY_PROCUREMENT_PAYMENT_SLIP
+    from app.services.procurement.purchase_workflow import (
+        ACTION_MARK_PAYMENT,
+        complete_operational_step,
+        get_active_purchase_workflow,
+    )
+
     req = _require_purchase(db, request_id)
-    if req.status != STATUS_AWAITING_INVOICE:
-        raise ValueError("فقط درخواست‌های در انتظار پرداخت فاکتور قابل تسویه هستند")
+    if req.status not in (
+        STATUS_AWAITING_PAYMENT_EXECUTION,
+        STATUS_AWAITING_INVOICE,
+    ):
+        raise ValueError("فقط درخواست‌های در مرحله پرداخت قابل تسویه هستند")
     if not user_is_finance_manager(user):
         if not (hasattr(user, "has_permission") and user.has_permission("workflow.approve")):
-            raise ValueError("فقط مدیر مالی می‌تواند پرداخت فاکتور را ثبت کند")
+            raise ValueError("فقط کارشناس/مدیر مالی می‌تواند پرداخت را ثبت کند")
 
     invoices = list_attachments_serialized(db, ENTITY_PROCUREMENT_INVOICE, request_id)
     if not invoices:
         raise ValueError("ابتدا باید فاکتور توسط مسئول خرید بارگذاری شود")
-
-    from app.constants.procurement import WORKFLOW_REF_PURCHASE
-    from app.services.procurement.purchase_workflow import (
-        ACTION_CONFIRM_PAYMENT,
-        complete_operational_step,
-        get_active_purchase_workflow,
-    )
+    if not list_attachments_serialized(db, ENTITY_PROCUREMENT_PAYMENT_SLIP, request_id):
+        raise ValueError(
+            "قبل از ثبت پرداخت، تصویر فیش واریزی یا چک‌های پرداخت‌شده را بارگذاری کنید"
+        )
 
     active = get_active_purchase_workflow(db, request_id)
     if active and active.ref_type == WORKFLOW_REF_PURCHASE:
@@ -116,12 +128,14 @@ def mark_invoice_paid(db: Session, *, request_id: int, user: User) -> dict:
             db,
             request_id=request_id,
             user_or_id=user,
-            expected_action=ACTION_CONFIRM_PAYMENT,
+            expected_action=ACTION_MARK_PAYMENT,
         )
     else:
         req.status = STATUS_COMPLETED
         req.invoice_paid_at = datetime.utcnow()
         req.invoice_paid_by = user.id
+        req.sepidar_registered_at = datetime.utcnow()
+        req.sepidar_registered_by = user.id
         db.commit()
 
     db.refresh(req)

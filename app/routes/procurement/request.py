@@ -10,12 +10,14 @@ from app.constants.api_permissions import (
 )
 from app.dependencies.auth import require_any_permission
 from app.dependencies.crud_http import raise_from_value_error
+from app.schemas.attachment import AttachmentOut
 from app.schemas.procurement import (
     CreateProcurementPaymentInput,
     CreatePurchaseRequestInput,
     PurchaseRequestOut,
     ProformaOut,
     UpdatePurchaseRequestInput,
+    UpdatePurchaseStockInput,
 )
 from app.schemas.request import CreateRequestInput, UpdateRequestInput
 from app.services.procurement.purchase_request_service import (
@@ -25,7 +27,11 @@ from app.services.procurement.purchase_request_service import (
     get_purchase_request_detail,
     get_purchase_request_detail_for_viewer,
     list_purchase_requests,
+    update_purchase_items_at_proforma,
     update_purchase_request_lines,
+    update_purchase_stock_levels,
+    upload_purchase_bol,
+    upload_purchase_payment_slip,
 )
 from app.services.purchase_request_list_scope import get_purchase_request_list_capabilities
 from app.services.procurement.proforma_service import (
@@ -168,6 +174,74 @@ def update_purchase_request_api(
             lines=payload.lines,
             reason=payload.reason,
             actor=user,
+        )
+    except ValueError as err:
+        raise_from_value_error(err)
+
+
+@router.patch("/purchase/{request_id}/stock", response_model=PurchaseRequestOut)
+def update_purchase_stock_api(
+    request_id: int,
+    payload: UpdatePurchaseStockInput,
+    db: Session = Depends(get_db),
+    user=Depends(require_any_permission(*PROCUREMENT_WRITE, "workflow.approve")),
+):
+    try:
+        return update_purchase_stock_levels(
+            db, request_id=request_id, user=user, items=payload.items
+        )
+    except ValueError as err:
+        raise_from_value_error(err)
+
+
+@router.patch("/purchase/{request_id}/items", response_model=PurchaseRequestOut)
+def update_purchase_items_at_proforma_api(
+    request_id: int,
+    payload: UpdatePurchaseRequestInput,
+    db: Session = Depends(get_db),
+    user=Depends(require_any_permission(*PROCUREMENT_WRITE, "workflow.approve")),
+):
+    try:
+        return update_purchase_items_at_proforma(
+            db, request_id=request_id, user=user, lines=payload.lines
+        )
+    except ValueError as err:
+        raise_from_value_error(err)
+
+
+@router.post(
+    "/purchase/{request_id}/payment-slips",
+    response_model=AttachmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_payment_slip_api(
+    request_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_any_permission(*PROCUREMENT_WRITE, "workflow.approve")),
+):
+    try:
+        return await upload_purchase_payment_slip(
+            db, request_id=request_id, user=user, file=file
+        )
+    except ValueError as err:
+        raise_from_value_error(err)
+
+
+@router.post(
+    "/purchase/{request_id}/bill-of-lading",
+    response_model=AttachmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_bol_api(
+    request_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_any_permission(*PROCUREMENT_WRITE, "workflow.approve")),
+):
+    try:
+        return await upload_purchase_bol(
+            db, request_id=request_id, user=user, file=file
         )
     except ValueError as err:
         raise_from_value_error(err)

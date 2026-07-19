@@ -38,6 +38,7 @@ def create_mission_request_api(
             destination=payload.destination,
             reason=payload.reason,
             vehicle=payload.vehicle,
+            title=payload.title,
             assignees_by_order=payload.assignees_by_order,
         )
     except ValueError as err:

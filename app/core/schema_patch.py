@@ -262,6 +262,15 @@ def ensure_workflow_schema(engine) -> None:
             )
             logger.info("Ensured workflow_steps.assigned_user_id column")
 
+        if "workflow_approvals" in tables:
+            conn.execute(
+                text(
+                    "ALTER TABLE workflow_approvals "
+                    "ADD COLUMN IF NOT EXISTS field_changes JSONB"
+                )
+            )
+            logger.info("Ensured workflow_approvals.field_changes column")
+
 
 def ensure_payment_request_schema(engine) -> None:
     """وام/مساعده: ستون‌های شرایط تأییدکننده."""
@@ -333,6 +342,12 @@ def ensure_payment_request_schema(engine) -> None:
                 "ALTER TABLE payment_requests "
                 "ADD COLUMN IF NOT EXISTS sepidar_confirmed_by INTEGER "
                 "REFERENCES users(id)"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE payment_requests "
+                "ADD COLUMN IF NOT EXISTS title VARCHAR(255)"
             )
         )
         logger.info(
@@ -567,6 +582,7 @@ def ensure_petty_cash_schema(engine) -> None:
             ("sepidar_registered_by", "INTEGER REFERENCES users(id)"),
             ("sepidar_confirmed_at", "TIMESTAMP"),
             ("sepidar_confirmed_by", "INTEGER REFERENCES users(id)"),
+            ("title", "VARCHAR(255)"),
         ):
             conn.execute(
                 text(
@@ -684,6 +700,38 @@ def ensure_procurement_schema(engine) -> None:
                     "REFERENCES users(id)"
                 )
             )
+            for col, ddl in (
+                ("title", "VARCHAR(255)"),
+                ("payment_location", "VARCHAR(40)"),
+                ("check_plan", "JSONB"),
+                ("sepidar_registered_at", "TIMESTAMP"),
+                (
+                    "sepidar_registered_by",
+                    "INTEGER REFERENCES users(id)",
+                ),
+                ("sepidar_confirmed_at", "TIMESTAMP"),
+                (
+                    "sepidar_confirmed_by",
+                    "INTEGER REFERENCES users(id)",
+                ),
+                ("bol_uploaded_at", "TIMESTAMP"),
+                ("goods_received_at", "TIMESTAMP"),
+                (
+                    "goods_received_by",
+                    "INTEGER REFERENCES users(id)",
+                ),
+                ("warehouse_posted_at", "TIMESTAMP"),
+                (
+                    "warehouse_posted_by",
+                    "INTEGER REFERENCES users(id)",
+                ),
+            ):
+                conn.execute(
+                    text(
+                        f"ALTER TABLE requests "
+                        f"ADD COLUMN IF NOT EXISTS {col} {ddl}"
+                    )
+                )
 
         if "request_items" in tables:
             conn.execute(
@@ -702,6 +750,24 @@ def ensure_procurement_schema(engine) -> None:
                 text(
                     "ALTER TABLE request_items "
                     "ADD COLUMN IF NOT EXISTS description TEXT"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE request_items "
+                    "ADD COLUMN IF NOT EXISTS unit VARCHAR(50)"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE request_items "
+                    "ADD COLUMN IF NOT EXISTS supply_source VARCHAR(200)"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE request_items "
+                    "ADD COLUMN IF NOT EXISTS warehouse_stock NUMERIC(18, 3)"
                 )
             )
 
@@ -925,32 +991,48 @@ def ensure_mission_request_schema(engine) -> None:
         return
 
     insp = inspect(engine)
-    if "mission_requests" in insp.get_table_names():
-        return
+    tables = set(insp.get_table_names())
 
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS mission_requests (
-                    id SERIAL PRIMARY KEY,
-                    requester_id INTEGER NOT NULL REFERENCES users(id),
-                    destination VARCHAR(500) NOT NULL,
-                    reason TEXT NOT NULL,
-                    vehicle VARCHAR(255) NOT NULL,
-                    status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
-                    report_text TEXT,
-                    reported_at TIMESTAMP WITHOUT TIME ZONE,
-                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
-                    updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+        if "mission_requests" not in tables:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS mission_requests (
+                        id SERIAL PRIMARY KEY,
+                        requester_id INTEGER NOT NULL REFERENCES users(id),
+                        title VARCHAR(255),
+                        destination VARCHAR(500) NOT NULL,
+                        reason TEXT NOT NULL,
+                        vehicle VARCHAR(255) NOT NULL,
+                        status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+                        report_text TEXT,
+                        reported_at TIMESTAMP WITHOUT TIME ZONE,
+                        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+                    )
+                    """
                 )
-                """
             )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_mission_requests_requester "
-                "ON mission_requests (requester_id)"
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_mission_requests_requester "
+                    "ON mission_requests (requester_id)"
+                )
             )
-        )
-        logger.info("Created mission_requests table")
+            logger.info("Created mission_requests table")
+        else:
+            conn.execute(
+                text(
+                    "ALTER TABLE mission_requests "
+                    "ADD COLUMN IF NOT EXISTS title VARCHAR(255)"
+                )
+            )
+
+        if "warehouse_forms" in tables:
+            conn.execute(
+                text(
+                    "ALTER TABLE warehouse_forms "
+                    "ADD COLUMN IF NOT EXISTS title VARCHAR(255)"
+                )
+            )

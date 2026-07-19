@@ -33,6 +33,7 @@ def create_warehouse_form_api(
         receiver_name=payload.receiver_name,
         effective_date=payload.effective_date,
         description=payload.description,
+        title=payload.title,
         assignees_by_order=payload.assignees_by_order,
     )
 

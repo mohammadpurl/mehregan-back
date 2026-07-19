@@ -20,6 +20,8 @@ ENTITY_FINANCIAL_DOCUMENT = "financial_document"
 ENTITY_PROCUREMENT_REQUEST = "procurement_request"
 ENTITY_PROCUREMENT_PROFORMA = "procurement_proforma"
 ENTITY_PROCUREMENT_INVOICE = "procurement_invoice"
+ENTITY_PROCUREMENT_PAYMENT_SLIP = "procurement_payment_slip"
+ENTITY_PROCUREMENT_BOL = "procurement_bol"
 ENTITY_GOODS_RECEIPT = "goods_receipt"
 ENTITY_AD_HOC_TASK = "ad_hoc_task"
 ENTITY_AD_HOC_TASK_STEP = "ad_hoc_task_step"
@@ -32,6 +34,8 @@ ENTITY_UPLOAD_DIRS: dict[str, str] = {
     ENTITY_PROCUREMENT_REQUEST: "procurement_requests",
     ENTITY_PROCUREMENT_PROFORMA: "procurement_proformas",
     ENTITY_PROCUREMENT_INVOICE: "procurement_invoices",
+    ENTITY_PROCUREMENT_PAYMENT_SLIP: "procurement_payment_slips",
+    ENTITY_PROCUREMENT_BOL: "procurement_bols",
     ENTITY_GOODS_RECEIPT: "goods_receipts",
     ENTITY_AD_HOC_TASK: "ad_hoc_tasks",
     ENTITY_AD_HOC_TASK_STEP: "ad_hoc_task_steps",
@@ -297,6 +301,10 @@ def assert_user_can_access_attachment(db: Session, user, att: Attachment) -> Non
             return
         raise ValueError("access denied")
     if att.entity_type == ENTITY_PROCUREMENT_INVOICE:
+        if user_can_access_purchase_request(db, user, att.entity_id):
+            return
+        raise ValueError("access denied")
+    if att.entity_type in (ENTITY_PROCUREMENT_PAYMENT_SLIP, ENTITY_PROCUREMENT_BOL):
         if user_can_access_purchase_request(db, user, att.entity_id):
             return
         raise ValueError("access denied")

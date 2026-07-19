@@ -11,15 +11,16 @@ from app.infrastructure.messaging.publisher import publish_event
 from app.models import WorkflowInstance, WorkflowStep
 from app.services.assignment import resolve_assignee_for_role
 from app.services.inbox import mark_inbox_done_for_workflow
-from app.models.payment_request import PaymentRequest
 from app.services.payment_request_terms import (
     ApproverTermsPayload,
     apply_approver_terms_before_approve,
-    financial_terms_satisfied,
 )
-from app.services.workflow_step_kinds import step_is_financial
 from app.services.workflow_approval_log import record_workflow_decision
-from app.services.workflow_step_access import user_can_act_on_workflow_step
+from app.services.workflow_auto_skip import can_auto_skip_next_approval_step
+from app.services.workflow_step_access import (
+    AUTO_SKIP_COMMENT,
+    user_can_act_on_workflow_step,
+)
 from app.services.workflow_notifications import (
     notify_submitter_step_decision,
     notify_workflow_next_step,
@@ -32,8 +33,6 @@ ALLOWED_TRANSITIONS = {
     "approved": [],
     "rejected": [],
 }
-
-AUTO_SKIP_COMMENT = "تأیید خودکار: همان تأییدکننده مرحله قبل"
 
 
 def _pending_step(db: Session, instance_id: int) -> WorkflowStep | None:
@@ -57,6 +56,7 @@ def _complete_step(
     *,
     auto_skipped: bool = False,
     comment: str | None = None,
+    field_changes: list | None = None,
 ) -> None:
     from app.services.sla import close_sla_for_step
 
@@ -72,6 +72,7 @@ def _complete_step(
         approved_by=user.id,
         decision="approved",
         comment=decision_comment,
+        field_changes=None if auto_skipped else field_changes,
     )
 
 
@@ -89,6 +90,8 @@ def approve_step(
     payer_company_account_id: int | None = None,
     payer_account: str | None = None,
     payment_method: str | None = None,
+    payment_location: str | None = None,
+    check_plan: list | None = None,
     payment_executed: bool = False,
     sepidar_confirmed: bool = False,
 ):
@@ -114,7 +117,7 @@ def approve_step(
             payment_method=payment_method,
         )
 
-    apply_approver_terms_before_approve(db, instance_id, user, terms)
+    field_changes = apply_approver_terms_before_approve(db, instance_id, user, terms)
 
     step = _pending_step(db, instance_id)
     if not step:
@@ -141,10 +144,24 @@ def approve_step(
     from app.constants.financial_workflow import CONFIRM_SEPIDAR_ACTIONS
 
     if instance and instance.ref_type == WORKFLOW_REF_PURCHASE:
-        if try_complete_operational_from_inbox(db, instance, step, user):
+        if try_complete_operational_from_inbox(
+            db,
+            instance,
+            step,
+            user,
+            payment_executed=payment_executed,
+            sepidar_confirmed=sepidar_confirmed,
+        ):
             return
         assert_can_approve_pending_step(
-            db, instance, step, payment_method=payment_method
+            db,
+            instance,
+            step,
+            payment_method=payment_method,
+            payment_location=payment_location,
+            check_plan=check_plan,
+            payment_executed=payment_executed,
+            sepidar_confirmed=sepidar_confirmed,
         )
 
     if instance and is_financial_ref_type(instance.ref_type):
@@ -168,7 +185,14 @@ def approve_step(
 
     _assert_can_approve(step, user)
     completed_order = step.order
-    _complete_step(db, step, user, auto_skipped=False, comment=comment)
+    _complete_step(
+        db,
+        step,
+        user,
+        auto_skipped=False,
+        comment=comment,
+        field_changes=field_changes or None,
+    )
     mark_inbox_done_for_workflow(db, instance_id, user_id=user.id)
 
     if (
@@ -188,13 +212,31 @@ def approve_step(
             raise ValueError("روش پرداخت هنگام تأیید پیش‌فاکتور الزامی است")
 
     if instance and instance.ref_type == WORKFLOW_REF_PURCHASE:
+        from app.services.procurement.purchase_workflow import (
+            ACTION_APPROVE_PROFORMA,
+            validate_ceo_payment_terms,
+        )
+
+        loc = payment_location
+        method = payment_method
+        plan = check_plan
+        if step_action_for_order(db, instance.ref_type, completed_order) == ACTION_APPROVE_PROFORMA:
+            loc, method, plan = validate_ceo_payment_terms(
+                db,
+                int(instance.ref_id),
+                payment_location=payment_location,
+                payment_method=payment_method,
+                check_plan=check_plan,
+            )
         advance_workflow_after_step(
             db,
             instance_id,
             completed_order=completed_order,
             actor=user,
-            payment_method=payment_method,
+            payment_method=method,
             payment_comment=comment,
+            payment_location=loc,
+            check_plan=plan,
         )
         db.refresh(instance)
         notify_submitter_step_decision(
@@ -272,35 +314,7 @@ def approve_step(
         if assigned_user:
             next_step.assigned_user_id = assigned_user.id
 
-        if user_can_act_on_workflow_step(user, next_step):
-            if (
-                instance
-                and instance.ref_type in ("payment_request", "payment_order")
-                and step_is_financial(db, instance, next_step)
-            ):
-                pr = db.get(PaymentRequest, instance.ref_id)
-                if not pr or not financial_terms_satisfied(pr):
-                    db.commit()
-                    next_payload = {
-                        "instance_id": instance_id,
-                        "role_id": next_step.role_id,
-                        "step_id": next_step.id,
-                        "user_id": next_step.assigned_user_id,
-                    }
-                    db.commit()
-                    publish_event(WORKFLOW_NEXT_STEP, next_payload)
-                    notify_workflow_next_step(db, next_payload)
-                    notify_submitter_step_decision(
-                        db,
-                        instance_id=instance_id,
-                        decision="approved",
-                        step_order=completed_order,
-                        actor=user,
-                        comment=comment,
-                        final=False,
-                    )
-                    db.commit()
-                    return
+        if can_auto_skip_next_approval_step(db, instance, user, next_step):
             _complete_step(db, next_step, user, auto_skipped=True)
             mark_inbox_done_for_workflow(db, instance_id, user_id=user.id)
             db.flush()

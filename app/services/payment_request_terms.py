@@ -164,12 +164,45 @@ def _apply_payment_order_terms(
     db.flush()
 
 
+def terms_touch_financial_numbers(terms: ApproverTermsPayload | None) -> bool:
+    if terms is None:
+        return False
+    return any(
+        (
+            terms.amount is not None,
+            terms.payment_date is not None,
+            terms.installment_count is not None,
+            terms.first_installment_date is not None,
+            terms.settlement_date is not None,
+            terms.payer_company_account_id is not None,
+            bool((terms.payer_account or "").strip()),
+            terms.payment_method is not None,
+        )
+    )
+
+
+def _assert_can_mutate_financial_numbers(entity, *, step_action: str | None = None) -> None:
+    from app.constants.financial_workflow import (
+        ACTION_MARK_PAYMENT,
+        CONFIRM_SEPIDAR_ACTIONS,
+    )
+    from app.services.financial_workflow import assert_financial_numbers_unlocked
+
+    if step_action == ACTION_MARK_PAYMENT or step_action in CONFIRM_SEPIDAR_ACTIONS:
+        raise ValueError(
+            "در مرحله ثبت یا تأیید سپیدار، تغییر مبلغ و شرایط مالی مجاز نیست"
+        )
+    assert_financial_numbers_unlocked(entity)
+
+
 def _apply_amount_and_payment_date(
     db: Session,
     inst: WorkflowInstance,
     step: WorkflowStep,
     user,
     terms: ApproverTermsPayload | None,
+    *,
+    step_action: str | None = None,
 ) -> None:
     if terms is None or (terms.amount is None and terms.payment_date is None):
         return
@@ -180,6 +213,7 @@ def _apply_amount_and_payment_date(
         pr = db.get(PaymentRequest, inst.ref_id)
         if not pr:
             return
+        _assert_can_mutate_financial_numbers(pr, step_action=step_action)
         if terms.amount is not None and terms.amount > 0:
             pr.amount = terms.amount
         if terms.payment_date is not None:
@@ -193,6 +227,7 @@ def _apply_amount_and_payment_date(
         row = db.get(PettyCashRequest, inst.ref_id)
         if not row:
             return
+        _assert_can_mutate_financial_numbers(row, step_action=step_action)
         if terms.amount is not None and terms.amount > 0:
             row.amount = terms.amount
         if terms.payment_date is not None:
@@ -206,6 +241,7 @@ def _apply_amount_and_payment_date(
         row = db.get(FinancialDocument, inst.ref_id)
         if not row:
             return
+        _assert_can_mutate_financial_numbers(row, step_action=step_action)
         if terms.amount is not None and terms.amount > 0:
             row.amount = terms.amount
         if terms.payment_date is not None:
@@ -218,79 +254,111 @@ def apply_approver_terms_before_approve(
     instance_id: int,
     user,
     terms: ApproverTermsPayload | None,
-) -> None:
+) -> list[dict]:
+    """
+    شرایط مالی را اعمال می‌کند و لیست تغییرات فیلدها را برمی‌گرداند
+    (برای تاریخچهٔ تأیید / audit).
+    پس از ثبت در سپیدار، تغییر اعداد/شرایط مالی ممنوع است.
+    """
+    from app.services.financial_workflow import (
+        is_financial_ref_type,
+        load_financial_entity,
+        step_action_for_order,
+    )
+    from app.services.workflow_terms_history import (
+        diff_financial_terms,
+        snapshot_financial_terms,
+    )
+
     inst = db.get(WorkflowInstance, instance_id)
     if not inst:
-        return
+        return []
 
     step = _pending_step(db, instance_id)
     if not step:
-        return
+        return []
 
-    _apply_amount_and_payment_date(db, inst, step, user, terms)
+    step_action = (
+        step_action_for_order(db, inst.ref_type, step.order)
+        if is_financial_ref_type(inst.ref_type)
+        else None
+    )
 
-    if inst.ref_type not in ("payment_request", WORKFLOW_REF_PAYMENT_ORDER):
-        return
-
-    pr = db.get(PaymentRequest, inst.ref_id)
-    if not pr:
-        return
-
-    if pr.payment_type == PAYMENT_TYPE_PAYMENT_ORDER:
-        _apply_payment_order_terms(db, inst, pr, step, user, terms)
-        return
-
-    if pr.payment_type not in EMPLOYEE_FINANCIAL_TYPES:
-        return
-
-    if not must_collect_financial_terms(db, inst, pr, step):
-        return
-
-    if payer_is_unset(pr.payer_account) and not pr.payer_company_account_id:
-        if terms is None or (
-            not terms.payer_company_account_id and not (terms.payer_account or "").strip()
-        ):
-            raise ValueError(
-                "برای تأیید مالی، حساب بانکی مبدأ پرداخت (شرکت) را انتخاب کنید"
-            )
-        if terms.payer_company_account_id:
-            snap, acc_id = cba_svc.resolve_payer_snapshot(
-                db, terms.payer_company_account_id
-            )
-            pr.payer_account = snap
-            pr.payer_company_account_id = acc_id
-        else:
-            pr.payer_account = (terms.payer_account or "").strip()
-        db.flush()
-
-    if payment_terms_complete(pr):
-        return
-
-    if pr.requester_id == user.id:
-        raise ValueError(
-            "درخواست‌دهنده نمی‌تواند تعداد اقساط، تاریخ شروع قسط یا تاریخ تسویه را تعیین کند"
+    if terms_touch_financial_numbers(terms):
+        entity = (
+            load_financial_entity(db, inst.ref_type, int(inst.ref_id))
+            if is_financial_ref_type(inst.ref_type)
+            else None
         )
+        if entity is not None:
+            _assert_can_mutate_financial_numbers(entity, step_action=step_action)
 
-    if not _user_can_act_on_step(user, step):
-        raise ValueError("access denied")
+    before = snapshot_financial_terms(db, inst)
 
-    if terms is None:
-        if pr.payment_type == PAYMENT_TYPE_LOAN:
-            raise ValueError(
-                "برای تأیید وام، تعداد اقساط و تاریخ شروع قسط اول الزامی است"
-            )
-        raise ValueError("برای تأیید مساعده، تاریخ تسویه الزامی است")
+    _apply_amount_and_payment_date(
+        db, inst, step, user, terms, step_action=step_action
+    )
 
-    if pr.payment_type == PAYMENT_TYPE_LOAN:
-        if terms.installment_count is None or terms.installment_count < 1:
-            raise ValueError("تعداد اقساط باید حداقل ۱ باشد")
-        if terms.first_installment_date is None:
-            raise ValueError("تاریخ شروع قسط اول الزامی است")
-        pr.installment_count = terms.installment_count
-        pr.first_installment_date = terms.first_installment_date
-    elif pr.payment_type == PAYMENT_TYPE_ADVANCE:
-        if terms.settlement_date is None:
-            raise ValueError("تاریخ تسویه مساعده الزامی است")
-        pr.settlement_date = terms.settlement_date
+    if inst.ref_type in ("payment_request", WORKFLOW_REF_PAYMENT_ORDER):
+        pr = db.get(PaymentRequest, inst.ref_id)
+        if pr:
+            if pr.payment_type == PAYMENT_TYPE_PAYMENT_ORDER:
+                if terms_touch_financial_numbers(terms):
+                    _assert_can_mutate_financial_numbers(pr, step_action=step_action)
+                _apply_payment_order_terms(db, inst, pr, step, user, terms)
+            elif pr.payment_type in EMPLOYEE_FINANCIAL_TYPES:
+                if must_collect_financial_terms(db, inst, pr, step):
+                    _assert_can_mutate_financial_numbers(pr, step_action=step_action)
+                    if payer_is_unset(pr.payer_account) and not pr.payer_company_account_id:
+                        if terms is None or (
+                            not terms.payer_company_account_id
+                            and not (terms.payer_account or "").strip()
+                        ):
+                            raise ValueError(
+                                "برای تأیید مالی، حساب بانکی مبدأ پرداخت (شرکت) را انتخاب کنید"
+                            )
+                        if terms.payer_company_account_id:
+                            snap, acc_id = cba_svc.resolve_payer_snapshot(
+                                db, terms.payer_company_account_id
+                            )
+                            pr.payer_account = snap
+                            pr.payer_company_account_id = acc_id
+                        else:
+                            pr.payer_account = (terms.payer_account or "").strip()
+                        db.flush()
 
-    db.flush()
+                    if not payment_terms_complete(pr):
+                        if pr.requester_id == user.id:
+                            raise ValueError(
+                                "درخواست‌دهنده نمی‌تواند تعداد اقساط، تاریخ شروع قسط یا تاریخ تسویه را تعیین کند"
+                            )
+
+                        if not _user_can_act_on_step(user, step):
+                            raise ValueError("access denied")
+
+                        if terms is None:
+                            if pr.payment_type == PAYMENT_TYPE_LOAN:
+                                raise ValueError(
+                                    "برای تأیید وام، تعداد اقساط و تاریخ شروع قسط اول الزامی است"
+                                )
+                            raise ValueError("برای تأیید مساعده، تاریخ تسویه الزامی است")
+
+                        if pr.payment_type == PAYMENT_TYPE_LOAN:
+                            if (
+                                terms.installment_count is None
+                                or terms.installment_count < 1
+                            ):
+                                raise ValueError("تعداد اقساط باید حداقل ۱ باشد")
+                            if terms.first_installment_date is None:
+                                raise ValueError("تاریخ شروع قسط اول الزامی است")
+                            pr.installment_count = terms.installment_count
+                            pr.first_installment_date = terms.first_installment_date
+                        elif pr.payment_type == PAYMENT_TYPE_ADVANCE:
+                            if terms.settlement_date is None:
+                                raise ValueError("تاریخ تسویه مساعده الزامی است")
+                            pr.settlement_date = terms.settlement_date
+
+                        db.flush()
+
+    after = snapshot_financial_terms(db, inst)
+    return diff_financial_terms(before, after)

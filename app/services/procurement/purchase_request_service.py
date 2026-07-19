@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.constants.procurement import (
     REQUEST_TYPE_PURCHASE,
     STATUS_AWAITING_PROFORMA,
+    STATUS_AWAITING_STOCK,
     STATUS_PAYMENT_PENDING,
     STATUS_PENDING,
     STATUS_PROFORMA_REVIEW,
@@ -16,6 +17,11 @@ from app.constants.procurement import (
     WORKFLOW_REF_PURCHASE,
     WORKFLOW_REF_REQUEST,
 )
+from app.constants.purchase_workflow_steps import (
+    ACTION_FILL_STOCK,
+    ACTION_UPLOAD_PROFORMA,
+)
+from app.models.warehouse import Warehouse
 from app.infrastructure.messaging.publisher import publish_event
 from app.models.item import Item
 from app.models.procurement.purchase_order import PurchaseOrder
@@ -39,7 +45,9 @@ from app.constants.role_labels import role_display_name
 from app.services.workflow_definition_service import assert_workflow_assignees_ready
 from app.services.workflow_start import start_workflow_instance
 from app.services.attachment_service import (
+    ENTITY_PROCUREMENT_BOL,
     ENTITY_PROCUREMENT_INVOICE,
+    ENTITY_PROCUREMENT_PAYMENT_SLIP,
     ENTITY_PROCUREMENT_REQUEST,
     delete_entity_attachment,
     list_attachments_serialized,
@@ -220,7 +228,15 @@ def _resolve_line_fields(db: Session, line: PurchaseLineInput) -> tuple[int | No
     return item_id, item_name
 
 
-def serialize_purchase_request(db: Session, req: Request) -> dict:
+def serialize_purchase_request(
+    db: Session, req: Request, *, viewer: User | None = None
+) -> dict:
+    from app.services.procurement.purchase_workflow import (
+        current_step_action,
+        get_active_purchase_workflow,
+    )
+    from app.services.workflow_step_access import user_can_act_on_workflow_step
+
     requester = db.get(User, req.requester_id)
     lines = (
         db.query(RequestItem).filter(RequestItem.request_id == req.id).order_by(RequestItem.id).all()
@@ -234,13 +250,33 @@ def serialize_purchase_request(db: Session, req: Request) -> dict:
                 "order_no": po.order_no,
                 "status": po.status,
             }
+    wh = db.get(Warehouse, req.warehouse_id) if req.warehouse_id else None
+    step_action = current_step_action(db, req.id)
+    can_edit_items = False
+    can_edit_stock = False
+    if viewer:
+        inst = get_active_purchase_workflow(db, req.id)
+        if inst:
+            step = (
+                db.query(WorkflowStep)
+                .filter_by(instance_id=inst.id, status="pending")
+                .order_by(WorkflowStep.order)
+                .first()
+            )
+            if step and user_can_act_on_workflow_step(viewer, step):
+                can_edit_items = step_action == ACTION_UPLOAD_PROFORMA
+                can_edit_stock = step_action == ACTION_FILL_STOCK
+
     return {
         "id": req.id,
         "type": req.type,
         "status": req.status,
+        "title": req.title,
         "requester_id": req.requester_id,
         "requester_name": (requester.full_name or requester.username) if requester else None,
         "reason": req.reason,
+        "warehouse_id": req.warehouse_id,
+        "warehouse_name": wh.name if wh else None,
         "payment_request_id": req.payment_request_id,
         "purchase_order_id": req.purchase_order_id,
         "payment": get_procurement_payment_summary(db, req),
@@ -252,17 +288,40 @@ def serialize_purchase_request(db: Session, req: Request) -> dict:
                 "quantity": li.quantity,
                 "description": li.description,
                 "item_id": li.item_id,
+                "unit": li.unit,
+                "supply_source": li.supply_source,
+                "warehouse_stock": (
+                    float(li.warehouse_stock) if li.warehouse_stock is not None else None
+                ),
             }
             for li in lines
         ],
+        "can_edit_items": can_edit_items,
+        "can_edit_stock": can_edit_stock,
+        "current_step_action": step_action,
         "workflow_instance_id": _active_workflow_instance_id(db, req.id, req.status),
         "attachments": list_attachments_serialized(
             db, ENTITY_PROCUREMENT_REQUEST, req.id
         ),
         "invoices": list_attachments_serialized(db, ENTITY_PROCUREMENT_INVOICE, req.id),
+        "payment_slips": list_attachments_serialized(
+            db, ENTITY_PROCUREMENT_PAYMENT_SLIP, req.id
+        ),
+        "bills_of_lading": list_attachments_serialized(
+            db, ENTITY_PROCUREMENT_BOL, req.id
+        ),
         "approved_payment_method": req.approved_payment_method,
         "approved_payment_comment": req.approved_payment_comment,
+        "payment_location": req.payment_location,
+        "check_plan": req.check_plan,
         "invoice_paid_at": req.invoice_paid_at.isoformat() if req.invoice_paid_at else None,
+        "invoice_paid_by": req.invoice_paid_by,
+        "sepidar_registered_at": (
+            req.sepidar_registered_at.isoformat() if req.sepidar_registered_at else None
+        ),
+        "sepidar_confirmed_at": (
+            req.sepidar_confirmed_at.isoformat() if req.sepidar_confirmed_at else None
+        ),
         "created_at": req.created_at,
     }
 
@@ -315,11 +374,26 @@ def create_purchase_request(
     user_id: int,
     payload: CreatePurchaseRequestInput,
 ) -> dict:
+    from app.services.request_title import resolve_request_title, user_display_name
+    from app.services.workflow_messages import REF_TYPE_LABELS
+
+    wh = db.get(Warehouse, payload.warehouse_id)
+    if not wh:
+        raise ValueError("انبار انتخاب‌شده یافت نشد")
+
+    user = db.get(User, user_id)
+    title = resolve_request_title(
+        title=payload.title,
+        type_label=REF_TYPE_LABELS.get(WORKFLOW_REF_PURCHASE, "درخواست خرید کالا"),
+        requester_name=user_display_name(user),
+    )
+
     req = Request(
         requester_id=user_id,
         type=REQUEST_TYPE_PURCHASE,
-        status=STATUS_PENDING,
-        warehouse_id=None,
+        status=STATUS_AWAITING_STOCK,
+        title=title,
+        warehouse_id=int(payload.warehouse_id),
         reason=(payload.reason or "").strip() or None,
     )
     db.add(req)
@@ -334,6 +408,8 @@ def create_purchase_request(
                 item_name=item_name,
                 quantity=line.quantity,
                 description=(line.description or "").strip() or None,
+                unit=(line.unit or "").strip() or None,
+                supply_source=(line.supply_source or "").strip() or None,
             )
         )
 
@@ -358,7 +434,7 @@ def create_purchase_request(
         raise
     publish_event("workflow.start", wf_payload)
 
-    return serialize_purchase_request(db, req)
+    return serialize_purchase_request(db, req, viewer=user)
 
 
 def mark_request_phase1_approved(db: Session, request_id: int) -> None:
@@ -374,13 +450,15 @@ def mark_request_phase1_approved(db: Session, request_id: int) -> None:
     notify_purchase_team_proforma_needed(db, request_id)
 
 
-def get_purchase_request_detail(db: Session, request_id: int) -> dict | None:
+def get_purchase_request_detail(
+    db: Session, request_id: int, *, viewer: User | None = None
+) -> dict | None:
     req = db.get(Request, request_id)
     if not req or req.type != REQUEST_TYPE_PURCHASE:
         return None
     sync_purchase_request_status_from_workflow(db, request_id)
     db.refresh(req)
-    data = serialize_purchase_request(db, req)
+    data = serialize_purchase_request(db, req, viewer=viewer)
     data["workflow_progress"] = get_purchase_workflow_progress(db, request_id)
     return data
 
@@ -393,10 +471,194 @@ def get_purchase_request_detail_for_viewer(
     from app.services.purchase_request_list_scope import user_can_access_purchase_request
 
     if user_has_permission_db(db, user.id, "procurement.read"):
-        return get_purchase_request_detail(db, request_id)
+        return get_purchase_request_detail(db, request_id, viewer=user)
     if user_can_access_purchase_request(db, user, request_id):
-        return get_purchase_request_detail(db, request_id)
+        return get_purchase_request_detail(db, request_id, viewer=user)
     raise ValueError("access denied")
+
+
+def update_purchase_stock_levels(
+    db: Session, *, request_id: int, user: User, items: list[dict]
+) -> dict:
+    """سرپرست مالی: پر کردن ستون موجودی انبار در مرحله fill_stock."""
+    from app.services.procurement.purchase_workflow import (
+        ACTION_FILL_STOCK,
+        current_step_action,
+        get_active_purchase_workflow,
+    )
+    from app.services.workflow_step_access import user_can_act_on_workflow_step
+
+    req = db.get(Request, request_id)
+    if not req or req.type != REQUEST_TYPE_PURCHASE:
+        raise ValueError("درخواست خرید یافت نشد")
+    if current_step_action(db, request_id) != ACTION_FILL_STOCK:
+        raise ValueError("فقط در مرحله ثبت موجودی انبار قابل ویرایش است")
+    inst = get_active_purchase_workflow(db, request_id)
+    if not inst:
+        raise ValueError("گردش‌کار فعال یافت نشد")
+    step = (
+        db.query(WorkflowStep)
+        .filter_by(instance_id=inst.id, status="pending")
+        .order_by(WorkflowStep.order)
+        .first()
+    )
+    if not step or not user_can_act_on_workflow_step(user, step):
+        raise ValueError("دسترسی به این مرحله مجاز نیست")
+
+    by_id = {int(row["id"]): row for row in items if row.get("id") is not None}
+    lines = (
+        db.query(RequestItem)
+        .filter(RequestItem.request_id == request_id)
+        .order_by(RequestItem.id)
+        .all()
+    )
+    for li in lines:
+        payload = by_id.get(li.id)
+        if not payload:
+            continue
+        stock = payload.get("warehouseStock", payload.get("warehouse_stock"))
+        if stock is None:
+            continue
+        li.warehouse_stock = float(stock)
+    db.commit()
+    db.refresh(req)
+    return serialize_purchase_request(db, req, viewer=user)
+
+
+def update_purchase_items_at_proforma(
+    db: Session, *, request_id: int, user: User, lines: list
+) -> dict:
+    """مسئول خرید: ویرایش اقلام در مرحله پیش‌فاکتور."""
+    from app.services.procurement.purchase_workflow import (
+        ACTION_UPLOAD_PROFORMA,
+        current_step_action,
+        get_active_purchase_workflow,
+    )
+    from app.services.workflow_step_access import user_can_act_on_workflow_step
+
+    req = db.get(Request, request_id)
+    if not req or req.type != REQUEST_TYPE_PURCHASE:
+        raise ValueError("درخواست خرید یافت نشد")
+    if current_step_action(db, request_id) != ACTION_UPLOAD_PROFORMA:
+        raise ValueError("فقط در مرحله پیش‌فاکتور امکان ویرایش اقلام هست")
+    inst = get_active_purchase_workflow(db, request_id)
+    if not inst:
+        raise ValueError("گردش‌کار فعال یافت نشد")
+    step = (
+        db.query(WorkflowStep)
+        .filter_by(instance_id=inst.id, status="pending")
+        .order_by(WorkflowStep.order)
+        .first()
+    )
+    if not step or not user_can_act_on_workflow_step(user, step):
+        raise ValueError("دسترسی به این مرحله مجاز نیست")
+    if not lines:
+        raise ValueError("حداقل یک قلم کالا الزامی است")
+
+    db.query(RequestItem).filter(RequestItem.request_id == request_id).delete()
+    for line in lines:
+        item_id, item_name = _resolve_line_fields(db, line)
+        db.add(
+            RequestItem(
+                request_id=req.id,
+                item_id=item_id,
+                item_name=item_name,
+                quantity=line.quantity,
+                description=(line.description or "").strip() or None,
+                unit=(getattr(line, "unit", None) or "").strip() or None,
+                supply_source=(getattr(line, "supply_source", None) or "").strip()
+                or None,
+            )
+        )
+    db.commit()
+    db.refresh(req)
+    return serialize_purchase_request(db, req, viewer=user)
+
+
+async def upload_purchase_payment_slip(
+    db: Session, *, request_id: int, user: User, file
+) -> dict:
+    from app.services.procurement.purchase_workflow import (
+        ACTION_MARK_PAYMENT,
+        current_step_action,
+        get_active_purchase_workflow,
+    )
+    from app.services.workflow_step_access import user_can_act_on_workflow_step
+
+    req = db.get(Request, request_id)
+    if not req or req.type != REQUEST_TYPE_PURCHASE:
+        raise ValueError("درخواست خرید یافت نشد")
+    if current_step_action(db, request_id) != ACTION_MARK_PAYMENT:
+        raise ValueError("فقط در مرحله پرداخت کارشناس مالی می‌توان فیش/چک آپلود کرد")
+    inst = get_active_purchase_workflow(db, request_id)
+    step = (
+        db.query(WorkflowStep)
+        .filter_by(instance_id=inst.id, status="pending")
+        .order_by(WorkflowStep.order)
+        .first()
+        if inst
+        else None
+    )
+    if not step or not user_can_act_on_workflow_step(user, step):
+        raise ValueError("دسترسی مجاز نیست")
+    att = await save_entity_attachment(
+        db,
+        entity_type=ENTITY_PROCUREMENT_PAYMENT_SLIP,
+        entity_id=request_id,
+        uploaded_by_id=user.id,
+        file=file,
+    )
+    return serialize_attachment(att)
+
+
+async def upload_purchase_bol(
+    db: Session, *, request_id: int, user: User, file
+) -> dict:
+    from app.constants.purchase_workflow_steps import ACTION_UPLOAD_BOL
+    from app.services.procurement.purchase_workflow import (
+        current_step_action,
+        get_active_purchase_workflow,
+    )
+    from app.services.workflow_step_access import user_can_act_on_workflow_step
+
+    req = db.get(Request, request_id)
+    if not req or req.type != REQUEST_TYPE_PURCHASE:
+        raise ValueError("درخواست خرید یافت نشد")
+    if current_step_action(db, request_id) != ACTION_UPLOAD_BOL:
+        raise ValueError("فقط در مرحله بارنامه می‌توان بارنامه آپلود کرد")
+    inst = get_active_purchase_workflow(db, request_id)
+    step = (
+        db.query(WorkflowStep)
+        .filter_by(instance_id=inst.id, status="pending")
+        .order_by(WorkflowStep.order)
+        .first()
+        if inst
+        else None
+    )
+    if not step or not user_can_act_on_workflow_step(user, step):
+        raise ValueError("دسترسی مجاز نیست")
+    att = await save_entity_attachment(
+        db,
+        entity_type=ENTITY_PROCUREMENT_BOL,
+        entity_id=request_id,
+        uploaded_by_id=user.id,
+        file=file,
+    )
+    req.bol_uploaded_at = __import__("datetime").datetime.utcnow()
+    db.commit()
+
+    from app.services.procurement.purchase_workflow import complete_operational_step
+
+    try:
+        complete_operational_step(
+            db,
+            request_id=request_id,
+            user_or_id=user,
+            expected_action=ACTION_UPLOAD_BOL,
+        )
+    except ValueError:
+        pass
+    return serialize_attachment(att)
 
 
 def get_purchase_request_by_instance_detail(db: Session, user, instance_id: int) -> dict:

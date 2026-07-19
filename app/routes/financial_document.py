@@ -148,10 +148,9 @@ async def upload_attachment_api(
         entity = db.get(FinancialDocument, document_id)
         if not entity:
             raise ValueError("سند مالی یافت نشد")
-        if entity.requester_id != user.id:
-            raise ValueError("فقط ثبت‌کننده می‌تواند پیوست بارگذاری کند")
-        if entity.status != "pending":
-            raise ValueError("پس از شروع تأیید، افزودن پیوست مجاز نیست")
+        if not fd_svc.user_can_access_financial_document(db, user, entity):
+            raise ValueError("access denied")
+        fd_svc.assert_can_upload_financial_document_files(db, user, entity)
         att = await save_entity_attachment(
             db, ENTITY_FINANCIAL_DOCUMENT, document_id, file, uploader_id=user.id
         )
@@ -172,8 +171,11 @@ def delete_attachment_api(
 ):
     try:
         entity = db.get(FinancialDocument, document_id)
-        if not entity or entity.requester_id != user.id:
+        if not entity:
+            raise ValueError("سند مالی یافت نشد")
+        if not fd_svc.user_can_access_financial_document(db, user, entity):
             raise ValueError("access denied")
+        fd_svc.assert_can_upload_financial_document_files(db, user, entity)
         delete_entity_attachment(db, attachment_id, user_id=user.id)
     except ValueError as err:
         raise_from_value_error(err)

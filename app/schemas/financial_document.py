@@ -54,6 +54,10 @@ class FinancialDocumentOut(BaseModel):
     created_at: datetime | None = Field(None, serialization_alias="createdAt")
     attachments: list[AttachmentOut] = Field(default_factory=list)
     attachment_count: int = Field(0, serialization_alias="attachmentCount")
+    can_upload: bool = Field(False, serialization_alias="canUpload")
+    can_delete_attachment: bool = Field(
+        False, serialization_alias="canDeleteAttachment"
+    )
 
 
 class FinancialDocumentListResponse(BaseModel):

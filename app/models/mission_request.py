@@ -11,6 +11,7 @@ class MissionRequest(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     requester_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     destination: Mapped[str] = mapped_column(String(500))
     reason: Mapped[str] = mapped_column(Text)

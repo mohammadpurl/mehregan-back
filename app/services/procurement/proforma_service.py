@@ -191,6 +191,8 @@ def mark_proforma_workflow_approved(
     *,
     payment_method: str | None = None,
     payment_comment: str | None = None,
+    payment_location: str | None = None,
+    check_plan: list | None = None,
 ) -> None:
     req = db.get(Request, request_id)
     if not req:
@@ -213,6 +215,10 @@ def mark_proforma_workflow_approved(
             row.status = PROFORMA_STATUS_APPROVED
     req.approved_payment_method = (payment_method or "").strip() or None
     req.approved_payment_comment = (payment_comment or "").strip() or None
+    if payment_location is not None:
+        req.payment_location = (payment_location or "").strip() or None
+    if check_plan is not None:
+        req.check_plan = check_plan
     req.status = STATUS_AWAITING_INVOICE
     db.flush()
     if row:

@@ -28,6 +28,7 @@ class PettyCashExpenseLineOut(BaseModel):
 class PettyCashCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    title: str | None = Field(None, max_length=255)
     amount: MoneyAmount
     reason: str | None = Field(None, max_length=2000)
     requested_date: date | None = Field(None, validation_alias="requestedDate")
@@ -47,6 +48,7 @@ class PettyCashOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: int
+    title: str | None = None
     requester_id: int = Field(serialization_alias="requesterId")
     requester_name: str | None = Field(None, serialization_alias="requesterName")
     amount: float

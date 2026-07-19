@@ -11,7 +11,10 @@ from app.models.payment_request import PaymentRequest
 from app.models.financial_document import FinancialDocument
 from app.models.petty_cash_request import PettyCashRequest
 from app.models.mission_request import MissionRequest
+from app.models.request import Request
 from app.models.user import User
+from app.models.warehouse_form import WarehouseForm
+from app.models.workflow_form import WorkflowForm
 from app.models.workflow_instance import WorkflowInstance
 from app.services.workflow_messages import (
     inbox_message_for_step,
@@ -47,11 +50,21 @@ class WorkflowNotifyContext:
     request_created_at: datetime | None
     amount: float | None
     requester_name: str | None
+    entity_title: str | None = None
     step_order: int | None = None
 
     @property
     def display_label(self) -> str:
         return self.detail_label or self.ref_type_label
+
+
+def _row_title(row: object | None) -> str | None:
+    if row is None:
+        return None
+    title = getattr(row, "title", None)
+    if title and str(title).strip():
+        return str(title).strip()
+    return None
 
 
 def _user_display_name(user: User | None) -> str | None:
@@ -79,6 +92,7 @@ def _context_from_instance(
     request_created_at: datetime | None = None
     amount: float | None = None
     requester_name: str | None = None
+    entity_title: str | None = None
 
     if ref_type in ("payment_request", "payment_order") and inst.ref_id:
         pr = (payments or {}).get(int(inst.ref_id))
@@ -90,23 +104,30 @@ def _context_from_instance(
             requester_name = _user_display_name(
                 (users or {}).get(pr.requester_id) if users is not None else None
             )
-    elif ref_type == "petty_cash" and inst.ref_id:
+            entity_title = _row_title(pr)
+    elif ref_type in ("petty_cash", "petty_cash_settlement") and inst.ref_id:
         pc = (petties or {}).get(inst.ref_id) if petties is not None else None
         if pc:
-            detail_label = "تنخواه"
+            detail_label = (
+                "تسویه تنخواه" if ref_type == "petty_cash_settlement" else "تنخواه"
+            )
             request_created_at = pc.created_at or request_created_at
             amount = float(pc.amount) if pc.amount is not None else None
             requester_name = _user_display_name(
                 (users or {}).get(pc.requester_id) if users is not None else None
             )
-    elif ref_type == "mission_request" and inst.ref_id:
+            entity_title = _row_title(pc)
+    elif ref_type in ("mission_request", "mission_report") and inst.ref_id:
         mr = (missions or {}).get(inst.ref_id) if missions is not None else None
         if mr:
-            detail_label = "درخواست ماموریت"
+            detail_label = (
+                "گزارش ماموریت" if ref_type == "mission_report" else "درخواست ماموریت"
+            )
             request_created_at = mr.created_at or request_created_at
             requester_name = _user_display_name(
                 (users or {}).get(mr.requester_id) if users is not None else None
             )
+            entity_title = _row_title(mr)
     elif ref_type == "financial_document" and inst.ref_id:
         fd = (financial_docs or {}).get(int(inst.ref_id)) if financial_docs is not None else None
         if fd:
@@ -118,6 +139,7 @@ def _context_from_instance(
             requester_name = _user_display_name(
                 (users or {}).get(fd.requester_id) if users is not None else None
             )
+            entity_title = _row_title(fd)
 
     return WorkflowNotifyContext(
         ref_type=ref_type,
@@ -127,6 +149,7 @@ def _context_from_instance(
         request_created_at=request_created_at,
         amount=amount,
         requester_name=requester_name,
+        entity_title=entity_title,
         step_order=step_order,
     )
 
@@ -153,9 +176,9 @@ def batch_load_workflow_contexts(
         rt = (inst.ref_type or "").strip()
         if rt in ("payment_request", "payment_order") and inst.ref_id:
             payment_ids.append(int(inst.ref_id))
-        elif rt == "petty_cash" and inst.ref_id:
+        elif rt in ("petty_cash", "petty_cash_settlement") and inst.ref_id:
             petty_ids.append(int(inst.ref_id))
-        elif rt == "mission_request" and inst.ref_id:
+        elif rt in ("mission_request", "mission_report") and inst.ref_id:
             mission_ids.append(int(inst.ref_id))
         elif rt == "financial_document" and inst.ref_id:
             financial_doc_ids.append(int(inst.ref_id))
@@ -240,6 +263,7 @@ def build_workflow_notify_context(
     request_created_at: datetime | None = None
     amount: float | None = None
     requester_name: str | None = None
+    entity_title: str | None = None
 
     if ref_type in ("payment_request", "payment_order") and inst.ref_id:
         pr = db.get(PaymentRequest, inst.ref_id)
@@ -257,19 +281,26 @@ def build_workflow_notify_context(
             request_created_at = pr.created_at or request_created_at
             amount = float(pr.amount) if pr.amount is not None else None
             requester_name = _user_display_name(db.get(User, pr.requester_id))
-    elif ref_type == "petty_cash" and inst.ref_id:
+            entity_title = _row_title(pr)
+    elif ref_type in ("petty_cash", "petty_cash_settlement") and inst.ref_id:
         pc = db.get(PettyCashRequest, inst.ref_id)
         if pc:
-            detail_label = "تنخواه"
+            detail_label = (
+                "تسویه تنخواه" if ref_type == "petty_cash_settlement" else "تنخواه"
+            )
             request_created_at = pc.created_at or request_created_at
             amount = float(pc.amount) if pc.amount is not None else None
             requester_name = _user_display_name(db.get(User, pc.requester_id))
-    elif ref_type == "mission_request" and inst.ref_id:
+            entity_title = _row_title(pc)
+    elif ref_type in ("mission_request", "mission_report") and inst.ref_id:
         mr = db.get(MissionRequest, inst.ref_id)
         if mr:
-            detail_label = "درخواست ماموریت"
+            detail_label = (
+                "گزارش ماموریت" if ref_type == "mission_report" else "درخواست ماموریت"
+            )
             request_created_at = mr.created_at or request_created_at
             requester_name = _user_display_name(db.get(User, mr.requester_id))
+            entity_title = _row_title(mr)
     elif ref_type == "financial_document" and inst.ref_id:
         fd = db.get(FinancialDocument, inst.ref_id)
         if fd:
@@ -279,6 +310,28 @@ def build_workflow_notify_context(
             request_created_at = fd.created_at or request_created_at
             amount = float(fd.amount) if fd.amount is not None else None
             requester_name = _user_display_name(db.get(User, fd.requester_id))
+            entity_title = _row_title(fd)
+    elif ref_type in ("purchase_request", "request", "procurement") and inst.ref_id:
+        req = db.get(Request, inst.ref_id)
+        if req:
+            detail_label = base_label
+            request_created_at = req.created_at or request_created_at
+            requester_name = _user_display_name(db.get(User, req.requester_id))
+            entity_title = _row_title(req)
+    elif ref_type == "warehouse_form" and inst.ref_id:
+        wf = db.get(WarehouseForm, inst.ref_id)
+        if wf:
+            detail_label = "فرم انبار"
+            request_created_at = wf.created_at or request_created_at
+            requester_name = _user_display_name(db.get(User, wf.requester_id))
+            entity_title = _row_title(wf)
+    elif ref_type == "workflow_form" and inst.ref_id:
+        form = db.get(WorkflowForm, inst.ref_id)
+        if form:
+            detail_label = "درخواست اداری"
+            request_created_at = form.created_at or request_created_at
+            requester_name = _user_display_name(db.get(User, form.requester_id))
+            entity_title = _row_title(form)
 
     return WorkflowNotifyContext(
         ref_type=ref_type,
@@ -288,6 +341,7 @@ def build_workflow_notify_context(
         request_created_at=request_created_at,
         amount=amount,
         requester_name=requester_name,
+        entity_title=entity_title,
         step_order=step_order,
     )
 
@@ -298,6 +352,7 @@ def context_to_meta(ctx: WorkflowNotifyContext, workflow_instance_id: int) -> di
         "businessRefType": ctx.ref_type,
         "businessRefId": ctx.business_ref_id,
         "requestTypeLabel": ctx.detail_label,
+        "requestTitle": ctx.entity_title,
         "requestCreatedAt": datetime_to_iso_utc(ctx.request_created_at),
         "requestAmount": ctx.amount,
         "requesterName": ctx.requester_name,

@@ -30,6 +30,9 @@ def ref_type_label(ref_type: str | None) -> str:
 
 def _label_from_ctx(ctx: object | None, ref_type: str | None = None) -> str:
     if ctx is not None:
+        entity_title = getattr(ctx, "entity_title", None)
+        if entity_title and str(entity_title).strip():
+            return str(entity_title).strip()
         detail = getattr(ctx, "display_label", None)
         if detail:
             return str(detail)
@@ -37,6 +40,11 @@ def _label_from_ctx(ctx: object | None, ref_type: str | None = None) -> str:
 
 
 def _ref_suffix(ctx: object | None) -> str:
+    """اگر عنوان کسب‌وکار هست، شناسه جداگانه لازم نیست."""
+    if ctx is not None:
+        entity_title = getattr(ctx, "entity_title", None)
+        if entity_title and str(entity_title).strip():
+            return ""
     ref_id = getattr(ctx, "business_ref_id", None) if ctx is not None else None
     if ref_id:
         return f" #{ref_id}"
@@ -44,6 +52,10 @@ def _ref_suffix(ctx: object | None) -> str:
 
 
 def _requester_suffix(ctx: object | None) -> str:
+    if ctx is not None:
+        entity_title = getattr(ctx, "entity_title", None)
+        if entity_title and str(entity_title).strip():
+            return ""
     name = getattr(ctx, "requester_name", None) if ctx is not None else None
     if name:
         return f" — {name}"
@@ -89,7 +101,7 @@ def notification_title_for_step(
 def notification_message_for_step(
     ref_type: str | None = None,
     step_order: int | None = None,
-    ctx: WorkflowNotifyContext | None = None,
+    ctx: object | None = None,
 ) -> str:
     return inbox_message_for_step(ref_type, step_order, ctx)
 

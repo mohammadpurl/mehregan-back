@@ -129,6 +129,7 @@ def _payment_to_dict(
         }
     return {
         "id": pr.id,
+        "title": pr.title,
         "requester_id": pr.requester_id,
         "counterparty_id": pr.counterparty_id,
         "counterparty": _counterparty_brief(cp),
@@ -212,6 +213,35 @@ def assert_payment_edit_as_requester(db: Session, user, pr: PaymentRequest) -> N
         ref_id=pr.id,
         user=user,
     )
+    ensure_workflow_mutable_for_entity(
+        db,
+        ref_type=WORKFLOW_REF_PAYMENT_ORDER,
+        ref_id=pr.id,
+        user=user,
+    )
+
+
+def _payment_update_touches_locked_numbers(
+    req: PaymentRequest, payload: PaymentRequestUpdate
+) -> bool:
+    """آیا این به‌روزرسانی مبلغ/تاریخ/حساب/روش پرداخت را عوض می‌کند؟"""
+    if isinstance(payload, LoanAdvanceRequestUpdate) or req.payment_type in EMPLOYEE_FINANCIAL_TYPES:
+        if getattr(payload, "amount", None) is not None:
+            return True
+        if getattr(payload, "payment_date", None) is not None:
+            return True
+        return False
+    if payload.amount is not None:
+        return True
+    if payload.payment_date is not None:
+        return True
+    if payload.payer_account is not None:
+        return True
+    if payload.receiver_account is not None:
+        return True
+    if payload.payment_method is not None:
+        return True
+    return False
 
 
 def _create_employee_financial_request(
@@ -222,6 +252,7 @@ def _create_employee_financial_request(
     amount: float,
     payment_date: date | None,
     reason: str | None,
+    title: str | None = None,
     assignees_by_order: dict[str, int] | None = None,
 ):
     return create_payment_request(
@@ -233,6 +264,7 @@ def _create_employee_financial_request(
         receiver_account="-",
         payment_date=payment_date,
         reason=reason,
+        title=title,
         assignees_by_order=assignees_by_order,
     )
 
@@ -243,6 +275,7 @@ def create_loan_request(
     amount: float,
     payment_date: date | None,
     reason: str | None,
+    title: str | None = None,
     assignees_by_order: dict[str, int] | None = None,
 ):
     return _create_employee_financial_request(
@@ -252,6 +285,7 @@ def create_loan_request(
         amount=amount,
         payment_date=payment_date,
         reason=reason,
+        title=title,
         assignees_by_order=assignees_by_order,
     )
 
@@ -262,6 +296,7 @@ def create_advance_request(
     amount: float,
     payment_date: date | None,
     reason: str | None,
+    title: str | None = None,
     assignees_by_order: dict[str, int] | None = None,
 ):
     return _create_employee_financial_request(
@@ -271,6 +306,7 @@ def create_advance_request(
         amount=amount,
         payment_date=payment_date,
         reason=reason,
+        title=title,
         assignees_by_order=assignees_by_order,
     )
 
@@ -291,6 +327,7 @@ def create_payment_order(
     payment_method: str,
     payment_date: date | None,
     reason: str | None,
+    title: str | None = None,
     payer_company_account_id: int | None = None,
     counterparty_id: int | None = None,
     counterparty_bank_account_id: int | None = None,
@@ -344,6 +381,7 @@ def create_payment_order(
         receiver_account=receiver_snap,
         payment_date=payment_date,
         reason=reason,
+        title=title,
         assignees_by_order=assignees_by_order,
         counterparty_id=cp_id,
         payer_company_account_id=payer_id,
@@ -362,6 +400,7 @@ def create_payment_request(
     receiver_account: str,
     payment_date: date | None,
     reason: str | None,
+    title: str | None = None,
     assignees_by_order: dict[str, int] | None = None,
     counterparty_id: int | None = None,
     payer_company_account_id: int | None = None,
@@ -370,6 +409,12 @@ def create_payment_request(
     payment_order_kind: str | None = None,
     workflow_ref_type: str | None = None,
 ):
+    from app.services.request_title import (
+        resolve_request_title,
+        type_label_for_payment_type,
+        user_display_name,
+    )
+
     resolved_method: str | None = None
     if payment_type == PAYMENT_TYPE_PAYMENT_ORDER:
         kind = (payment_order_kind or PAYMENT_ORDER_KIND_INDIVIDUAL).strip().lower()
@@ -388,8 +433,16 @@ def create_payment_request(
     if isinstance(payment_date, str) and payment_date:
         resolved_payment_date = date.fromisoformat(payment_date)
 
+    requester = db.get(User, requester_id)
+    resolved_title = resolve_request_title(
+        title=title,
+        type_label=type_label_for_payment_type(payment_type),
+        requester_name=user_display_name(requester),
+    )
+
     req = PaymentRequest(
         requester_id=requester_id,
+        title=resolved_title,
         counterparty_id=counterparty_id,
         payer_company_account_id=payer_company_account_id,
         receiver_counterparty_account_id=receiver_counterparty_account_id,
@@ -538,10 +591,14 @@ def update_payment_request(
     *,
     user,
 ) -> dict:
+    from app.services.financial_workflow import assert_financial_numbers_unlocked
+
     req = db.get(PaymentRequest, request_id)
     if not req:
         raise ValueError("payment request not found")
     assert_payment_edit_as_requester(db, user, req)
+    if _payment_update_touches_locked_numbers(req, payload):
+        assert_financial_numbers_unlocked(req)
 
     if req.payment_type in EMPLOYEE_FINANCIAL_TYPES:
         if isinstance(payload, LoanAdvanceRequestUpdate):

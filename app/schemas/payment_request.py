@@ -26,6 +26,7 @@ class PaymentRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: int
+    title: str | None = None
     requester_id: int = Field(serialization_alias="requesterId")
     requester_name: str | None = Field(None, serialization_alias="requesterName")
     counterparty_id: int | None = Field(None, serialization_alias="counterpartyId")

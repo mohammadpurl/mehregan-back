@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.constants.financial_document import FINANCIAL_DOCUMENT_STEPS
 from app.constants.financial_workflow import (
     UNIFIED_FINANCIAL_STEPS,
     WORKFLOW_REF_FINANCIAL_DOCUMENT,
@@ -103,10 +104,16 @@ def ensure_roles(db) -> None:
     db.commit()
 
 
+def _default_steps_for(ref_type: str) -> list:
+    if ref_type == WORKFLOW_REF_PETTY_CASH_SETTLEMENT:
+        return list(PETTY_CASH_SETTLEMENT_STEPS)
+    if ref_type == WORKFLOW_REF_FINANCIAL_DOCUMENT:
+        return list(FINANCIAL_DOCUMENT_STEPS)
+    return list(UNIFIED_FINANCIAL_STEPS)
+
+
 def upsert_missing_only(db) -> None:
     """فقط اگر تعریف وجود ندارد، الگوی پیش‌فرض را می‌نویسد — تعریف ادمین را بازنویسی نمی‌کند."""
-    unified = list(UNIFIED_FINANCIAL_STEPS)
-    settlement = list(PETTY_CASH_SETTLEMENT_STEPS)
     for ref_type, name in REF_DEFS:
         exists = (
             db.query(WorkflowDefinition.id)
@@ -119,18 +126,18 @@ def upsert_missing_only(db) -> None:
                 "(admin edits preserved)"
             )
             continue
-        steps = settlement if ref_type == WORKFLOW_REF_PETTY_CASH_SETTLEMENT else unified
-        upsert_definition(db, ref_type=ref_type, name=name, steps=steps)
+        upsert_definition(
+            db, ref_type=ref_type, name=name, steps=_default_steps_for(ref_type)
+        )
         print(f"CREATED: workflow_definitions.{ref_type}")
 
 
 def reset_all_definitions(db) -> None:
-    """بازنویسی اجباری با UNIFIED_FINANCIAL_STEPS — تغییرات ادمین پاک می‌شود."""
-    unified = list(UNIFIED_FINANCIAL_STEPS)
-    settlement = list(PETTY_CASH_SETTLEMENT_STEPS)
+    """بازنویسی اجباری تعریف‌های مالی — تغییرات ادمین پاک می‌شود."""
     for ref_type, name in REF_DEFS:
-        steps = settlement if ref_type == WORKFLOW_REF_PETTY_CASH_SETTLEMENT else unified
-        upsert_definition(db, ref_type=ref_type, name=name, steps=steps)
+        upsert_definition(
+            db, ref_type=ref_type, name=name, steps=_default_steps_for(ref_type)
+        )
         print(f"RESET: workflow_definitions.{ref_type}")
 
 

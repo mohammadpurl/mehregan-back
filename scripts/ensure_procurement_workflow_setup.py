@@ -43,6 +43,9 @@ from app.constants.procurement import (
     WORKFLOW_REF_REQUEST,
 
 )
+from app.constants.purchase_workflow_steps import (
+    PURCHASE_REQUEST_STEPS as _CANONICAL_PURCHASE_STEPS,
+)
 
 from app.models.request import Request
 from app.models.role import Role
@@ -64,94 +67,7 @@ from app.services.workflow_step_config import (
 
 
 # گردش‌کار یکپارچه — همه مراحل در یک instance
-
-PURCHASE_REQUEST_STEPS = [
-
-    {
-
-        "order": 1,
-
-        "label": "تأیید مدیر مالی",
-
-        "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-
-        "assignee_strategy": "role_pool",
-
-        "step_action": "approval",
-
-    },
-
-    {
-
-        "order": 2,
-
-        "label": "تأیید مدیرعامل — درخواست",
-
-        "role_aliases": ["ceo", "managing_director", "مدیرعامل"],
-
-        "assignee_strategy": "role_pool",
-
-        "step_action": "approval",
-
-    },
-
-    {
-
-        "order": 3,
-
-        "label": "ثبت و ارسال پیش‌فاکتور — مسئول خرید",
-
-        "role_aliases": ["purchase_officer", "purchase_manager", "مسئول خرید", "مدیر خرید"],
-
-        "assignee_strategy": "role_pool",
-
-        "step_action": "upload_proforma",
-
-    },
-
-    {
-
-        "order": 4,
-
-        "label": "تأیید پیش‌فاکتور و روش پرداخت — مدیرعامل",
-
-        "role_aliases": ["ceo", "managing_director", "مدیرعامل"],
-
-        "assignee_strategy": "role_pool",
-
-        "step_action": "approve_proforma",
-
-    },
-
-    {
-
-        "order": 5,
-
-        "label": "بارگذاری فاکتور — مسئول خرید",
-
-        "role_aliases": ["purchase_officer", "purchase_manager", "مسئول خرید", "مدیر خرید"],
-
-        "assignee_strategy": "role_pool",
-
-        "step_action": "upload_invoice",
-
-    },
-
-    {
-
-        "order": 6,
-
-        "label": "تأیید پرداخت فاکتور — مدیر مالی",
-
-        "role_aliases": ["finance_manager", "accountant", "مدیر مالی"],
-
-        "assignee_strategy": "role_pool",
-
-        "step_action": "confirm_payment",
-
-    },
-
-]
+PURCHASE_REQUEST_STEPS = list(_CANONICAL_PURCHASE_STEPS)
 
 
 

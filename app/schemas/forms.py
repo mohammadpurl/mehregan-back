@@ -20,6 +20,7 @@ class WorkflowFormCreate(BaseModel):
 class LoanAdvanceRequestCreate(BaseModel):
     """درخواست وام یا مساعده — فقط مبلغ، تاریخ و توضیح توسط کارمند."""
 
+    title: str | None = Field(default=None, max_length=255)
     amount: MoneyAmount
     payment_date: date | None = Field(
         None,
@@ -57,6 +58,7 @@ class PaymentOrderCreate(BaseModel):
 
     model_config = {"populate_by_name": True}
 
+    title: str | None = Field(default=None, max_length=255)
     payment_order_kind: str = Field(
         "individual",
         validation_alias="paymentOrderKind",
@@ -120,6 +122,7 @@ class PaymentOrderCreate(BaseModel):
 class PaymentRequestCreate(BaseModel):
     model_config = {"populate_by_name": True}
 
+    title: str | None = Field(default=None, max_length=255)
     payment_type: str = Field(min_length=2, max_length=50)
     amount: MoneyAmount
     payer_company_account_id: int | None = Field(
@@ -154,6 +157,7 @@ class WarehouseFormUpdate(BaseModel):
 
 
 class WarehouseFormCreate(BaseModel):
+    title: str | None = Field(default=None, max_length=255)
     form_type: str = Field(min_length=2, max_length=20)
     source: str | None = Field(default=None, max_length=255)
     destination: str | None = Field(default=None, max_length=255)

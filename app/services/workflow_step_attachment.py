@@ -49,6 +49,16 @@ def upload_step_attachment(
     if not user_can_act_on_workflow_step(user, step):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="access denied")
 
+    # اسناد مالی: فقط پیوست روی خود سند (entity) — نه روی مرحله workflow
+    if inst.ref_type == "financial_document":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "برای اسناد مالی، تصویر را از صفحه سند مالی آپلود کنید "
+                "(فقط کارشناس مالی ثبت‌کننده)"
+            ),
+        )
+
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file required")
 

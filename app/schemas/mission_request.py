@@ -8,6 +8,7 @@ from app.schemas.attachment import AttachmentOut
 class MissionRequestCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    title: str | None = Field(None, max_length=255)
     destination: str = Field(..., min_length=1, max_length=500)
     reason: str = Field(..., min_length=1, max_length=8000)
     vehicle: str = Field(..., min_length=1, max_length=255)
@@ -31,6 +32,7 @@ class MissionRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: int
+    title: str | None = None
     requester_id: int = Field(serialization_alias="requesterId")
     requester_name: str | None = Field(None, serialization_alias="requesterName")
     destination: str

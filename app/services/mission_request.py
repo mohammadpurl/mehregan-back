@@ -101,6 +101,7 @@ def _serialize(
 
     base = {
         "id": row.id,
+        "title": row.title,
         "requester_id": row.requester_id,
         "requester_name": requester_name,
         "destination": row.destination,
@@ -132,12 +133,24 @@ def create_mission_request(
     destination: str,
     reason: str,
     vehicle: str,
+    title: str | None = None,
     assignees_by_order: dict[str, int] | None = None,
 ) -> dict:
+    from app.services.request_title import resolve_request_title, user_display_name
+    from app.services.workflow_messages import REF_TYPE_LABELS
+
     assert_workflow_assignees_ready(db, REF_TYPE, submitter_id=requester_id)
+
+    requester = db.get(User, requester_id)
+    resolved_title = resolve_request_title(
+        title=title,
+        type_label=REF_TYPE_LABELS.get(REF_TYPE, "درخواست ماموریت"),
+        requester_name=user_display_name(requester),
+    )
 
     row = MissionRequest(
         requester_id=requester_id,
+        title=resolved_title,
         destination=destination.strip(),
         reason=reason.strip(),
         vehicle=vehicle.strip(),

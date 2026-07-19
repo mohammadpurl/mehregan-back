@@ -11,6 +11,7 @@ class PettyCashRequest(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     requester_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     amount: Mapped[float] = mapped_column(Numeric(15, 2))
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)

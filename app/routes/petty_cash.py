@@ -48,6 +48,7 @@ def create_petty_cash_api(
             amount=payload.amount,
             reason=payload.reason,
             requested_date=payload.requested_date,
+            title=payload.title,
             assignees_by_order=payload.assignees_by_order,
         )
     except ValueError as err:

@@ -186,6 +186,7 @@ def _serialize(
 
     base = {
         "id": row.id,
+        "title": row.title,
         "requester_id": row.requester_id,
         "requester_name": requester_name,
         "amount": float(row.amount),
@@ -223,8 +224,12 @@ def create_petty_cash_request(
     amount: float,
     reason: str | None,
     requested_date: date | None,
+    title: str | None = None,
     assignees_by_order: dict[str, int] | None = None,
 ) -> dict:
+    from app.services.request_title import resolve_request_title, user_display_name
+    from app.services.workflow_messages import REF_TYPE_LABELS
+
     eligibility = check_eligibility(db, requester_id)
     if not eligibility["can_create"]:
         raise ValueError(eligibility["message"] or "امکان ثبت تنخواه جدید وجود ندارد")
@@ -233,8 +238,16 @@ def create_petty_cash_request(
         db, "petty_cash", submitter_id=requester_id
     )
 
+    requester = db.get(User, requester_id)
+    resolved_title = resolve_request_title(
+        title=title,
+        type_label=REF_TYPE_LABELS.get("petty_cash", "تنخواه"),
+        requester_name=user_display_name(requester),
+    )
+
     row = PettyCashRequest(
         requester_id=requester_id,
+        title=resolved_title,
         amount=amount,
         reason=(reason or "").strip() or None,
         requested_date=requested_date,

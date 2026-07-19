@@ -40,9 +40,52 @@ from app.services.workflow_start import start_workflow_instance
 from app.services.workflow_step_access import user_can_act_on_workflow_step
 
 
+def _user_is_finance_officer(user: User) -> bool:
+    return hasattr(user, "has_role") and user.has_role("finance_officer")
+
+
 def _assert_finance_submitter(user: User) -> None:
-    if not user_is_finance_manager(user):
-        raise ValueError("ثبت سند مالی فقط توسط واحد مالی مجاز است")
+    if user_is_finance_manager(user) or _user_is_finance_officer(user):
+        return
+    raise ValueError("ثبت سند مالی فقط توسط کارشناس مالی یا واحد مالی مجاز است")
+
+
+def user_can_upload_financial_document_files(
+    db: Session, user: User, row: FinancialDocument
+) -> bool:
+    """
+    فقط نفر اول (ثبت‌کننده / کارشناس مالی مرحلهٔ اول) تا قبل از ثبت سپیدار
+    می‌تواند عکس آپلود کند؛ بقیه فقط رویت.
+    """
+    if row.status != STATUS_PENDING:
+        return False
+    from app.services.financial_workflow import get_sepidar_registered_at
+
+    if get_sepidar_registered_at(row):
+        return False
+    if row.requester_id == user.id:
+        return True
+    inst = workflow_instance_for_document(db, row.id)
+    if not inst or inst.status not in ("pending", "in_progress", "active"):
+        return False
+    step = (
+        db.query(WorkflowStep)
+        .filter_by(instance_id=inst.id, status="pending")
+        .order_by(WorkflowStep.order)
+        .first()
+    )
+    if not step or step.order != 1:
+        return False
+    return user_can_act_on_workflow_step(user, step)
+
+
+def assert_can_upload_financial_document_files(
+    db: Session, user: User, row: FinancialDocument
+) -> None:
+    if not user_can_upload_financial_document_files(db, user, row):
+        raise ValueError(
+            "فقط کارشناس مالی ثبت‌کننده تا قبل از ثبت در سپیدار می‌تواند تصویر آپلود کند"
+        )
 
 
 def workflow_instance_for_document(
@@ -64,6 +107,7 @@ def _serialize(
     *,
     include_attachments: bool = True,
     attachment_count_override: int | None = None,
+    viewer: User | None = None,
 ) -> dict:
     inst = workflow_instance_for_document(db, row.id)
     requester_name = None
@@ -75,6 +119,9 @@ def _serialize(
                 " ".join(p.strip() for p in parts if p and p.strip()) or req.username
             )
 
+    can_upload = (
+        user_can_upload_financial_document_files(db, viewer, row) if viewer else False
+    )
     base = {
         "id": row.id,
         "requester_id": row.requester_id,
@@ -94,6 +141,8 @@ def _serialize(
         "sepidar_confirmed_by": row.sepidar_confirmed_by,
         "workflow_instance_id": inst.id if inst else None,
         "created_at": row.created_at,
+        "can_upload": can_upload,
+        "can_delete_attachment": can_upload,
     }
     if include_attachments:
         atts = list_attachments(db, ENTITY_FINANCIAL_DOCUMENT, row.id)
@@ -130,10 +179,21 @@ def create_financial_document(
         db, WORKFLOW_REF_FINANCIAL_DOCUMENT, submitter_id=requester.id
     )
 
+    from app.services.request_title import resolve_request_title, user_display_name
+    from app.services.workflow_messages import REF_TYPE_LABELS
+
+    resolved_title = resolve_request_title(
+        title=title,
+        type_label=REF_TYPE_LABELS.get(
+            WORKFLOW_REF_FINANCIAL_DOCUMENT, "سند مالی"
+        ),
+        requester_name=user_display_name(requester),
+    )
+
     row = FinancialDocument(
         requester_id=requester.id,
         document_type=doc_type,
-        title=(title or "").strip() or None,
+        title=resolved_title,
         description=(description or "").strip() or None,
         amount=amount,
         document_date=document_date,
@@ -145,13 +205,22 @@ def create_financial_document(
     db.commit()
     db.refresh(row)
 
+    # مرحلهٔ اول همیشه ثبت‌کننده (کارشناس مالی) است
+    assignees: dict[str, int] = {}
+    if assignees_by_order:
+        for k, v in assignees_by_order.items():
+            try:
+                assignees[str(int(k))] = int(v)
+            except (TypeError, ValueError):
+                continue
+    assignees["1"] = int(requester.id)
+
     wf_payload: dict = {
         "ref_type": WORKFLOW_REF_FINANCIAL_DOCUMENT,
         "ref_id": row.id,
         "submitter_id": requester.id,
+        "assignees_by_order": assignees,
     }
-    if assignees_by_order:
-        wf_payload["assignees_by_order"] = assignees_by_order
 
     try:
         start_workflow_instance(db, wf_payload, sync_notify=True)
@@ -160,7 +229,7 @@ def create_financial_document(
         raise
     publish_event("workflow.start", wf_payload)
 
-    return _serialize(db, row, include_attachments=False)
+    return _serialize(db, row, include_attachments=True, viewer=requester)
 
 
 def on_workflow_approved(db: Session, document_id: int) -> None:
@@ -186,7 +255,7 @@ def get_financial_document(db: Session, document_id: int, user: User) -> dict:
         raise ValueError("سند مالی یافت نشد")
     if not user_can_access_financial_document(db, user, row):
         raise ValueError("access denied")
-    return _serialize(db, row)
+    return _serialize(db, row, viewer=user)
 
 
 def get_financial_document_by_workflow_instance(
@@ -241,7 +310,13 @@ def list_financial_documents(
     ids = [r.id for r in rows]
     counts = count_attachments_batch(db, ENTITY_FINANCIAL_DOCUMENT, ids)
     return [
-        _serialize(db, r, include_attachments=False, attachment_count_override=counts.get(r.id, 0))
+        _serialize(
+            db,
+            r,
+            include_attachments=False,
+            attachment_count_override=counts.get(r.id, 0),
+            viewer=viewer,
+        )
         for r in rows
     ]
 
