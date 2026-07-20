@@ -37,7 +37,7 @@ def create_workflow_form_api(
 def list_workflow_forms_api(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100, alias="pageSize"),
-    sort_by: str = Query("id", alias="sortBy"),
+    sort_by: str = Query("created_at", alias="sortBy"),
     sort_order: str = Query("desc", alias="sortOrder"),
     filter_by: str | None = Query(None, alias="filterBy"),
     filter_value: str | None = Query(None, alias="filterValue"),
@@ -76,6 +76,21 @@ def get_workflow_form_api(
     form = get_workflow_form(db, form_id)
     if not form:
         raise HTTPException(status_code=404, detail="workflow form not found")
+    if form.requester_id != user.id and form.receiver_id != user.id:
+        from app.models.workflow_instance import WorkflowInstance
+        from app.services.workflow_instance_list import user_can_view_workflow_instance
+
+        inst = (
+            db.query(WorkflowInstance)
+            .filter(
+                WorkflowInstance.ref_type == "workflow_form",
+                WorkflowInstance.ref_id == form_id,
+            )
+            .order_by(WorkflowInstance.id.desc())
+            .first()
+        )
+        if not inst or not user_can_view_workflow_instance(db, user, inst.id):
+            raise HTTPException(status_code=404, detail="workflow form not found")
     return form
 
 

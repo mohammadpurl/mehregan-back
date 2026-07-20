@@ -455,7 +455,7 @@ def list_petty_cash_requests(
     scope: str | None = None,
     offset: int = 0,
     limit: int = 20,
-    sort_by: str = "id",
+    sort_by: str = "created_at",
     sort_order: str = "desc",
     search: str | None = None,
 ) -> list[dict]:

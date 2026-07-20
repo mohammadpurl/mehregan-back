@@ -125,6 +125,8 @@ class PurchaseRequestOut(BaseModel):
     items: list[PurchaseLineOut] = Field(default_factory=list)
     can_edit_items: bool = Field(False, serialization_alias="canEditItems")
     can_edit_stock: bool = Field(False, serialization_alias="canEditStock")
+    can_upload_proforma: bool = Field(False, serialization_alias="canUploadProforma")
+    can_submit_proforma: bool = Field(False, serialization_alias="canSubmitProforma")
     current_step_action: str | None = Field(None, serialization_alias="currentStepAction")
     workflow_instance_id: int | None = Field(None, serialization_alias="workflowInstanceId")
     workflow_progress: list[WorkflowProgressPhaseOut] | None = Field(
@@ -136,6 +138,7 @@ class PurchaseRequestOut(BaseModel):
     purchase_order: PurchaseOrderSummaryOut | None = Field(
         None, serialization_alias="purchaseOrder"
     )
+    proformas: list["ProformaOut"] = Field(default_factory=list)
     attachments: list[AttachmentOut] = Field(default_factory=list)
     invoices: list[AttachmentOut] = Field(default_factory=list)
     payment_slips: list[AttachmentOut] = Field(
@@ -296,13 +299,16 @@ class GoodsReceiptOut(BaseModel):
 
 
 class ProformaOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: int
     request_id: int = Field(serialization_alias="requestId")
     supplier_id: int = Field(serialization_alias="supplierId")
     supplier_name: str | None = Field(None, serialization_alias="supplierName")
-    amount: float
+    amount: float = Field(..., description="مبلغ کل پیش‌فاکتور")
+    total_amount: float | None = Field(
+        None, description="همان مبلغ کل", serialization_alias="totalAmount"
+    )
     notes: str | None = None
     status: str
     uploaded_by: int = Field(serialization_alias="uploadedBy")

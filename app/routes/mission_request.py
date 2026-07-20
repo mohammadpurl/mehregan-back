@@ -57,7 +57,7 @@ def mission_request_list_capabilities_api(
 def list_mission_requests_api(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE, alias="pageSize"),
-    sort_by: str = Query("id", alias="sortBy"),
+    sort_by: str = Query("created_at", alias="sortBy"),
     sort_order: str = Query("desc", alias="sortOrder"),
     search: str | None = Query(None),
     scope: str | None = Query(None, description="mine | team | all | approver | participated"),
@@ -163,9 +163,14 @@ async def upload_mission_attachment_api(
     user=Depends(require_any_permission(*PAYMENT_WRITE)),
 ):
     try:
-        mr_svc.get_mission_request(db, request_id, user)
+        detail = mr_svc.get_mission_request(db, request_id, user)
     except ValueError as err:
         raise_from_value_error(err)
+    if detail.get("requester_id") != user.id:
+        from app.services.workflow_lock import user_may_bypass_workflow_edit_lock
+
+        if not user_may_bypass_workflow_edit_lock(user):
+            raise_from_value_error(ValueError("فقط درخواست‌دهنده می‌تواند پیوست بارگذاری کند"))
     row = await save_entity_attachment(
         db,
         entity_type=ENTITY_MISSION_REQUEST,
@@ -188,9 +193,14 @@ def delete_mission_attachment_api(
     user=Depends(require_any_permission(*PAYMENT_WRITE)),
 ):
     try:
-        mr_svc.get_mission_request(db, request_id, user)
+        detail = mr_svc.get_mission_request(db, request_id, user)
     except ValueError as err:
         raise_from_value_error(err)
+    if detail.get("requester_id") != user.id:
+        from app.services.workflow_lock import user_may_bypass_workflow_edit_lock
+
+        if not user_may_bypass_workflow_edit_lock(user):
+            raise_from_value_error(ValueError("فقط درخواست‌دهنده می‌تواند پیوست را حذف کند"))
     if not delete_entity_attachment(
         db,
         entity_type=ENTITY_MISSION_REQUEST,

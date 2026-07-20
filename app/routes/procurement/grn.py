@@ -49,7 +49,7 @@ def list_warehouses_for_grn(
 def list_grn_api(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100, alias="pageSize"),
-    sort_by: str = Query("id", alias="sortBy"),
+    sort_by: str = Query("created_at", alias="sortBy"),
     sort_order: str = Query("desc", alias="sortOrder"),
     filter_by: str | None = Query(None, alias="filterBy"),
     filter_value: str | None = Query(None, alias="filterValue"),

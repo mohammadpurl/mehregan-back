@@ -51,6 +51,8 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
     user = get_user_by_username(db, username)
     if not user:
         return None
+    if not getattr(user, "is_active", True):
+        return None
     if not verify_password(password, user.hashed_password):
         return None
     return user

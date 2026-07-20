@@ -25,10 +25,9 @@ from app.services import rbac
 CEO_USERNAME = "mjyounesi"
 CEO_FIRST_NAME = "محمدجلال"
 CEO_LAST_NAME = "یونسی"
-DEFAULT_PASSWORD = "123456"
 
 
-def seed_ceo_user(*, password: str = DEFAULT_PASSWORD) -> User:
+def seed_ceo_user(*, password: str) -> User:
     db = SessionLocal()
     try:
         ceo_role = db.query(Role).filter(Role.name == "ceo").first()
@@ -76,8 +75,15 @@ def seed_ceo_user(*, password: str = DEFAULT_PASSWORD) -> User:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed CEO user (محمدجلال یونسی)")
-    parser.add_argument("--password", default=DEFAULT_PASSWORD, help="رمز عبور (پیش‌فرض: 123456)")
+    parser.add_argument(
+        "--password",
+        required=True,
+        help="رمز عبور قوی (اجباری؛ پیش‌فرض ضعیف حذف شده است)",
+    )
     args = parser.parse_args()
+    if not args.password or len(args.password) < 8 or args.password in {"123456", "password", "admin"}:
+        print("ERROR: رمز عبور باید حداقل ۸ کاراکتر و غیرپیش‌فرض باشد", file=sys.stderr)
+        sys.exit(1)
     user = seed_ceo_user(password=args.password)
     print(f"Role: ceo — user id={user.id}, username={user.username}")
 

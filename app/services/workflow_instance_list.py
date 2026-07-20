@@ -28,6 +28,7 @@ from app.services.payment_request_list_scope import (
 )
 from app.services.query_utils import apply_search_filter, apply_sort
 from app.services.workflow_messages import ref_type_label
+from app.services.workflow_feed_context import build_workflow_notify_context
 
 
 def list_workflow_instance_scopes(db: Session, user: User) -> list[str]:
@@ -350,6 +351,11 @@ def serialize_workflow_instance_row(db: Session, inst: WorkflowInstance) -> dict
             last_at = s.approved_at
             break
 
+    ctx = build_workflow_notify_context(db, inst)
+    entity_title = (ctx.entity_title or "").strip() if ctx else ""
+    fallback_title = f"{ref_type_label(inst.ref_type)} #{inst.ref_id}"
+    title = entity_title or fallback_title
+
     return {
         "id": inst.id,
         "ref_type": inst.ref_type,
@@ -362,7 +368,8 @@ def serialize_workflow_instance_row(db: Session, inst: WorkflowInstance) -> dict
         "current_assignee_id": pending.assigned_user_id if pending else None,
         "current_assignee_name": _user_display(assignee),
         "updated_at": last_at.isoformat() if last_at else None,
-        "title": f"{ref_type_label(inst.ref_type)} #{inst.ref_id}",
+        "title": title,
+        "request_title": entity_title or None,
     }
 
 

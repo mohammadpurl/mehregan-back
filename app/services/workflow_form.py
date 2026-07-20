@@ -47,7 +47,7 @@ def list_workflow_forms(
     requester_id: int | None = None,
     offset: int = 0,
     limit: int = 20,
-    sort_by: str = "id",
+    sort_by: str = "created_at",
     sort_order: str = "desc",
     filter_by: str | None = None,
     filter_value: str | None = None,

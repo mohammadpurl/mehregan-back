@@ -4,10 +4,23 @@ import os
 import pika
 
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
+RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")
+RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST", "/")
 
 
 def rabbitmq_connection():
-    return pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
+    params = pika.ConnectionParameters(
+        host=RABBITMQ_HOST,
+        port=RABBITMQ_PORT,
+        virtual_host=RABBITMQ_VHOST,
+        credentials=credentials,
+        heartbeat=60,
+        blocked_connection_timeout=30,
+    )
+    return pika.BlockingConnection(params)
 
 
 class RabbitMQClient:
@@ -39,5 +52,4 @@ class RabbitMQClient:
             self.connection.close()
 
 
-# 👇 این دقیقاً همان چیزی است که import می‌کنی
 rabbitmq = RabbitMQClient()

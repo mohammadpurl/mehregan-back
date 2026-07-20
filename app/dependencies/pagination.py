@@ -24,7 +24,8 @@ class ListQueryParams:
 def get_list_params(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE, alias="pageSize"),
-    sort_by: str = Query("id", alias="sortBy"),
+    # Work queues / entity lists: newest first. Master-data routes may override.
+    sort_by: str = Query("created_at", alias="sortBy"),
     sort_order: str = Query("desc", alias="sortOrder"),
     search: str | None = Query(None),
     filter_by: str | None = Query(None, alias="filterBy"),

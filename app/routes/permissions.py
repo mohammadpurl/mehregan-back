@@ -102,5 +102,11 @@ def patch_permission(
     permission_id: int,
     payload: PermissionUpdate,
     db: Session = Depends(get_db),
+    _user=Depends(require_permission("admin.manage")),
 ):
-    return update_permission(permission_id, payload, db)
+    try:
+        return rbac.update_permission(
+            db, permission_id, code=payload.code, name=payload.name
+        )
+    except ValueError as err:
+        raise_from_value_error(err)

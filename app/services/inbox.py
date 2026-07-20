@@ -64,9 +64,9 @@ def create_inbox_item(
     return inbox
 
 
-def mark_as_read(db: Session, inbox_id: int):
+def mark_as_read(db: Session, inbox_id: int, *, user_id: int):
     item = db.query(InboxItem).get(inbox_id)
-    if not item:
+    if not item or item.user_id != user_id:
         return None
 
     item.is_read = True
@@ -85,9 +85,9 @@ def mark_as_read(db: Session, inbox_id: int):
     return item
 
 
-def mark_as_done(db: Session, inbox_id: int):
+def mark_as_done(db: Session, inbox_id: int, *, user_id: int):
     item = db.query(InboxItem).get(inbox_id)
-    if not item:
+    if not item or item.user_id != user_id:
         return None
 
     item.is_done = True
@@ -163,7 +163,7 @@ def get_role_inbox(db: Session, role_id: int, offset: int = 0, limit: int = 20):
     return (
         db.query(InboxItem)
         .filter_by(role_id=role_id)
-        .order_by(InboxItem.id.desc())
+        .order_by(InboxItem.created_at.desc(), InboxItem.id.desc())
         .offset(offset)
         .limit(limit)
         .all()

@@ -2,8 +2,11 @@ import os
 from pathlib import Path
 from typing import List
 
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+# بارگذاری .env قبل از خواندن SECRET_KEY و سایر تنظیمات
+load_dotenv(BASE_DIR / ".env", override=False)
 
 # Storage directories
 PERSIST_DIRECTORY = Path(
@@ -36,8 +39,8 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
 RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
-# Auth — SECRET_KEY must be provided via env (no insecure default)
-_secret_raw = (os.getenv("SECRET_KEY") or "1ARYojrkXsRics0LHnOymE/U00KTfyhTLAgGYZo2paRZEDnxbUGK/X1DmT7X8ph1W/xbqE6OyhoFuvVd9hcSyn4N3QU=").strip()
+# Auth — SECRET_KEY must be set via environment (no fallback in source)
+_secret_raw = (os.getenv("SECRET_KEY") or "").strip()
 _INSECURE_SECRET_DEFAULTS = frozenset(
     {
         "",
@@ -46,6 +49,8 @@ _INSECURE_SECRET_DEFAULTS = frozenset(
         "CHANGE_ME_BACKEND_JWT_SECRET",
         "CHANGE_ME_BACKEND_JWT_SECRET_64CHARS",
         "CHANGE_ME_USE_openssl_or_PowerShell_random_64_chars",
+        # previously committed insecure fallback — never reuse
+        "1ARYojrkXsRics0LHnOymE/U00KTfyhTLAgGYZo2paRZEDnxbUGK/X1DmT7X8ph1W/xbqE6OyhoFuvVd9hcSyn4N3QU=",
     }
 )
 if _secret_raw in _INSECURE_SECRET_DEFAULTS or len(_secret_raw) < 32:
@@ -95,13 +100,13 @@ REDIS_ENABLED = os.getenv("REDIS_ENABLED", "false").lower() == "true"
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 
+# فقط localhost/docker به‌صورت پیش‌فرض؛ IPهای عمومی را فقط از env اضافه کنید
 DEFAULT_ALLOWED_IPS = [
-    "127.0.0.1",  # localhost
-    "37.59.183.158",  # IP سرور فرانت اصلی
-    "172.17.0.0/16",  # subnet پیش‌فرض docker
-    "172.18.0.0/16",  # subnet پروژه شما (از لاگ دیدم)
-    "172.19.0.0/16",  # subnet اضافی اگر نیاز بود
-    "178.131.95.38",  # IP تست از بیرون
+    "127.0.0.1",
+    "::1",
+    "172.17.0.0/16",
+    "172.18.0.0/16",
+    "172.19.0.0/16",
 ]
 ALLOWED_IPS: List[str] = [
     ip.strip()
@@ -110,6 +115,8 @@ ALLOWED_IPS: List[str] = [
 ]
 
 IP_WHITELIST_ENABLED = os.getenv("IP_WHITELIST_ENABLED", "true").lower() == "true"
+# فقط وقتی پشت reverse-proxy قابل اعتماد هستید true کنید
+TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
 # Only LB health checks should bypass IP whitelist (never expose /docs publicly)
 IP_WHITELIST_EXEMPT_PATHS = [
     "/health",

@@ -60,7 +60,7 @@ from app.core.config import (
     IP_WHITELIST_EXEMPT_PATHS,
 )
 from app.core.rate_limit import setup_rate_limiting
-from app.core.config import ROOT_PATH, UPLOAD_DIRECTORY
+from app.core.config import ROOT_PATH, TRUST_PROXY_HEADERS, UPLOAD_DIRECTORY
 from app.core.schema_patch import (
     ensure_payment_request_schema,
     ensure_permissions_schema,
@@ -116,28 +116,31 @@ if not ENABLE_API_DOCS:
     )
 
 UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIRECTORY)), name="uploads")
+# فقط آواتارها به‌صورت عمومی؛ پیوست‌های کسب‌وکار فقط از /attachments/{id}/download
+_avatars_dir = UPLOAD_DIRECTORY / "avatars"
+_avatars_dir.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/uploads/avatars",
+    StaticFiles(directory=str(_avatars_dir)),
+    name="uploads_avatars",
+)
 
 
 def get_client_ip(request: Request) -> str:
     """
-    استخراج IP واقعی کلاینت از header های مختلف.
-    این برای زمانی است که سرور پشت reverse proxy (nginx, load balancer) باشد.
+    IP کلاینت. هدرهای X-Forwarded-For / X-Real-IP فقط وقتی
+    TRUST_PROXY_HEADERS=true باشد معتبرند (پشت proxy قابل اعتماد).
     """
-    # اولویت: X-Forwarded-For (ممکن است چند IP باشد، اولی را می‌گیریم)
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # X-Forwarded-For می‌تواند چند IP داشته باشد (مثلاً: "client, proxy1, proxy2")
-        client_ip = forwarded_for.split(",")[0].strip()
-        if client_ip:
-            return client_ip
+    if TRUST_PROXY_HEADERS:
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+            if client_ip:
+                return client_ip
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip.strip()
 
-    # دوم: X-Real-IP
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-
-    # سوم: مستقیماً از client
     if request.client:
         return request.client.host
 

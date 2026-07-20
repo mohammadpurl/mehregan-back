@@ -157,9 +157,22 @@ def get_requests_report(
                 "entityStatus": ent_status,
                 "workflowStatus": inst.status,
                 "createdAt": event_at.isoformat() if event_at else None,
+                "_created_at": event_at,
                 "workflowInstanceId": inst.id,
             }
         )
+
+    # تازه‌ترین درخواست‌ها بالا
+    rows.sort(
+        key=lambda r: (
+            r.get("_created_at") is not None,
+            r.get("_created_at") or datetime.min,
+            r.get("workflowInstanceId") or 0,
+        ),
+        reverse=True,
+    )
+    for r in rows:
+        r.pop("_created_at", None)
 
     total = len(rows)
     page_items = rows[offset : offset + limit]

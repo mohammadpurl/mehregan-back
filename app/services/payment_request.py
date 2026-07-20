@@ -515,9 +515,8 @@ def list_payment_requests(
         search,
         ["payment_type", "payer_account", "receiver_account", "reason", "status"],
     )
-    # نزدیک‌ترین تاریخ ثبت اول — اگر sort_by ناشناخته بود، created_at
-    resolved_sort = sort_by if hasattr(PaymentRequest, sort_by) else "created_at"
-    query = apply_sort(query, PaymentRequest, resolved_sort, sort_order)
+    # تازه‌ترین اول؛ apply_sort ستون ناشناخته / camelCase را به created_at می‌برد
+    query = apply_sort(query, PaymentRequest, sort_by, sort_order)
     rows = query.offset(offset).limit(limit).all()
     ids = [r.id for r in rows]
     counts = count_attachments_batch(db, ENTITY_PAYMENT_REQUEST, ids)

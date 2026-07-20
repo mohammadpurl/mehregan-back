@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -72,15 +72,21 @@ def my_inbox(
 def read_inbox(
     inbox_id: int,
     db: Session = Depends(get_db),
-    _user=Depends(require_any_permission(*INBOX_READ)),
+    user=Depends(require_any_permission(*INBOX_READ)),
 ):
-    return mark_as_read(db, inbox_id)
+    item = mark_as_read(db, inbox_id, user_id=user.id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="inbox item not found")
+    return item
 
 
 @router.post("/{inbox_id}/done")
 def done_inbox(
     inbox_id: int,
     db: Session = Depends(get_db),
-    _user=Depends(require_any_permission(*WORKFLOW_APPROVE)),
+    user=Depends(require_any_permission(*WORKFLOW_APPROVE)),
 ):
-    return mark_as_done(db, inbox_id)
+    item = mark_as_done(db, inbox_id, user_id=user.id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="inbox item not found")
+    return item

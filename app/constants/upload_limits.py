@@ -23,7 +23,6 @@ ATTACHMENT_ALLOWED_EXTENSIONS = frozenset(
         ".bmp",
         ".tif",
         ".tiff",
-        ".zip",
     }
 )
 

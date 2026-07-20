@@ -92,7 +92,7 @@ def list_purchase_orders(
     *,
     offset: int = 0,
     limit: int = 20,
-    sort_by: str = "id",
+    sort_by: str = "created_at",
     sort_order: str = "desc",
     filter_by: str | None = None,
     filter_value: str | None = None,
@@ -138,16 +138,15 @@ def list_purchase_orders(
             )
         )
 
-    sort_map = {
-        "request_id": PurchaseOrder.request_id,
-        "supplier_name": Supplier.name,
-        "status": PurchaseOrder.status,
-        "expected_date": PurchaseOrder.expected_date,
-    }
-    if sort_by in sort_map and sort_by == "supplier_name":
+    normalized_sort = (sort_by or "created_at").replace("supplierName", "supplier_name")
+    if normalized_sort in ("supplier_name", "supplierName"):
         query = query.join(Supplier, isouter=True)
-        col = sort_map[sort_by]
-        query = query.order_by(col.desc() if sort_order == "desc" else col.asc())
+        descending = str(sort_order or "desc").lower() != "asc"
+        primary = Supplier.name.desc() if descending else Supplier.name.asc()
+        secondary = (
+            PurchaseOrder.id.desc() if descending else PurchaseOrder.id.asc()
+        )
+        query = query.order_by(primary, secondary)
     else:
         query = apply_sort(query, PurchaseOrder, sort_by, sort_order)
 

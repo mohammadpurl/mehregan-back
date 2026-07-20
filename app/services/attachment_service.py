@@ -144,7 +144,12 @@ def resolve_attachment_file_path(att: Attachment) -> Path:
     allowed = _allowed_attachment_path_prefixes()
     if ".." in rel or not rel.startswith(allowed):
         raise ValueError("مسیر فایل نامعتبر است")
+    root = UPLOAD_DIRECTORY.resolve()
     full = (UPLOAD_DIRECTORY / rel).resolve()
+    try:
+        full.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("مسیر فایل نامعتبر است") from exc
     if not full.is_file():
         raise ValueError("فایل پیوست روی دیسک یافت نشد")
     return full
@@ -218,7 +223,12 @@ def delete_attachment_file(db: Session, att: Attachment) -> None:
     allowed = _allowed_attachment_path_prefixes()
     if ".." in rel or not rel.startswith(allowed):
         return
+    root = UPLOAD_DIRECTORY.resolve()
     full = (UPLOAD_DIRECTORY / rel).resolve()
+    try:
+        full.relative_to(root)
+    except ValueError:
+        return
     try:
         if full.is_file():
             full.unlink()
@@ -258,9 +268,6 @@ def assert_user_can_access_attachment(db: Session, user, att: Attachment) -> Non
     from app.services.payment_request import assert_payment_access
     from app.services.petty_cash import get_petty_cash
     from app.services.purchase_request_list_scope import user_can_access_purchase_request
-
-    if att.uploaded_by == user.id:
-        return
 
     if att.entity_type == ENTITY_PAYMENT_REQUEST:
         pr = db.get(PaymentRequest, att.entity_id)

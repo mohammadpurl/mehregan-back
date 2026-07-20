@@ -254,6 +254,8 @@ def serialize_purchase_request(
     step_action = current_step_action(db, req.id)
     can_edit_items = False
     can_edit_stock = False
+    can_upload_proforma = False
+    can_submit_proforma = False
     if viewer:
         inst = get_active_purchase_workflow(db, req.id)
         if inst:
@@ -266,6 +268,27 @@ def serialize_purchase_request(
             if step and user_can_act_on_workflow_step(viewer, step):
                 can_edit_items = step_action == ACTION_UPLOAD_PROFORMA
                 can_edit_stock = step_action == ACTION_FILL_STOCK
+                can_upload_proforma = (
+                    step_action == ACTION_UPLOAD_PROFORMA
+                    and req.status
+                    in (STATUS_AWAITING_PROFORMA, STATUS_PROFORMA_REVIEW)
+                )
+                can_submit_proforma = (
+                    step_action == ACTION_UPLOAD_PROFORMA
+                    and req.status == STATUS_AWAITING_PROFORMA
+                )
+    # مسئول خرید با دسترسی write هم اگر وضعیت مناسب است بتواند آپلود کند
+    if not can_upload_proforma and req.status in (
+        STATUS_AWAITING_PROFORMA,
+        STATUS_PROFORMA_REVIEW,
+    ):
+        if step_action == ACTION_UPLOAD_PROFORMA:
+            can_upload_proforma = True
+            can_submit_proforma = req.status == STATUS_AWAITING_PROFORMA
+
+    from app.services.procurement.proforma_service import list_proformas_for_request
+
+    proformas = list_proformas_for_request(db, req.id)
 
     return {
         "id": req.id,
@@ -298,8 +321,11 @@ def serialize_purchase_request(
         ],
         "can_edit_items": can_edit_items,
         "can_edit_stock": can_edit_stock,
+        "can_upload_proforma": can_upload_proforma,
+        "can_submit_proforma": can_submit_proforma,
         "current_step_action": step_action,
         "workflow_instance_id": _active_workflow_instance_id(db, req.id, req.status),
+        "proformas": proformas,
         "attachments": list_attachments_serialized(
             db, ENTITY_PROCUREMENT_REQUEST, req.id
         ),
@@ -698,8 +724,7 @@ def list_purchase_requests(
     query = apply_purchase_request_list_scope(db, query, user=viewer, scope=resolved)
     query = apply_equal_filter(query, Request, filter_by, filter_value)
     query = apply_search_filter(query, Request, search, ["status", "reason"])
-    resolved_sort = sort_by if hasattr(Request, sort_by) else "created_at"
-    query = apply_sort(query, Request, resolved_sort, sort_order)
+    query = apply_sort(query, Request, sort_by, sort_order)
     rows = query.offset(offset).limit(limit).all()
     return [serialize_purchase_request(db, r) for r in rows]
 

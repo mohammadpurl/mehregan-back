@@ -277,23 +277,72 @@ def list_request_proformas_api(
     return list_proformas_for_request(db, request_id)
 
 
-@router.post("/purchase/{request_id}/proformas", response_model=ProformaOut)
+@router.post(
+    "/purchase/{request_id}/proformas",
+    response_model=ProformaOut,
+    summary="ثبت پیش‌فاکتور با فایل و مبلغ کل",
+)
 async def upload_proforma_api(
     request_id: int,
-    supplier_id: int = Form(...),
-    amount: float = Form(...),
+    supplier_id: int = Form(..., alias="supplierId", description="شناسه تأمین‌کننده"),
+    amount: float | None = Form(
+        None, description="مبلغ کل پیش‌فاکتور (یا totalAmount)"
+    ),
+    total_amount: float | None = Form(
+        None, alias="totalAmount", description="مبلغ کل پیش‌فاکتور"
+    ),
     notes: str | None = Form(None),
-    file: UploadFile = File(...),
+    file: UploadFile = File(..., description="فایل پیش‌فاکتور (PDF/تصویر)"),
     db: Session = Depends(get_db),
     user=Depends(require_any_permission(*PROCUREMENT_WRITE)),
 ):
+    resolved_amount = amount if amount is not None else total_amount
+    if resolved_amount is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="مبلغ کل پیش‌فاکتور الزامی است (amount یا totalAmount)",
+        )
     try:
         return await create_proforma(
             db,
             request_id=request_id,
             user_id=user.id,
             supplier_id=supplier_id,
-            amount=amount,
+            amount=float(resolved_amount),
+            file=file,
+            notes=notes,
+        )
+    except ValueError as err:
+        raise_from_value_error(err)
+
+
+@router.patch(
+    "/purchase/{request_id}/proformas/{proforma_id}",
+    response_model=ProformaOut,
+    summary="ویرایش پیش‌فاکتور پیش‌نویس (مبلغ کل / فایل)",
+)
+async def update_proforma_api(
+    request_id: int,
+    proforma_id: int,
+    supplier_id: int | None = Form(None, alias="supplierId"),
+    amount: float | None = Form(None),
+    total_amount: float | None = Form(None, alias="totalAmount"),
+    notes: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+    user=Depends(require_any_permission(*PROCUREMENT_WRITE)),
+):
+    from app.services.procurement.proforma_service import update_draft_proforma
+
+    resolved_amount = amount if amount is not None else total_amount
+    try:
+        return await update_draft_proforma(
+            db,
+            request_id=request_id,
+            proforma_id=proforma_id,
+            user_id=user.id,
+            supplier_id=supplier_id,
+            amount=float(resolved_amount) if resolved_amount is not None else None,
             file=file,
             notes=notes,
         )
@@ -423,20 +472,6 @@ def ensure_purchase_order_api(
         raise_from_value_error(err)
 
 
-def submit_proforma_api(
-    request_id: int,
-    proforma_id: int,
-    db: Session = Depends(get_db),
-    user=Depends(require_any_permission(*PROCUREMENT_WRITE)),
-):
-    try:
-        return submit_proforma_for_approval(
-            db, request_id=request_id, proforma_id=proforma_id, user_id=user.id
-        )
-    except ValueError as err:
-        raise_from_value_error(err)
-
-
 @router.post("/")
 def create_request_api(
     payload: CreateRequestInput,
@@ -456,7 +491,7 @@ def create_request_api(
 def list_requests_api(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100, alias="pageSize"),
-    sort_by: str = Query("id", alias="sortBy"),
+    sort_by: str = Query("created_at", alias="sortBy"),
     sort_order: str = Query("desc", alias="sortOrder"),
     filter_by: str | None = Query(None, alias="filterBy"),
     filter_value: str | None = Query(None, alias="filterValue"),
@@ -492,9 +527,20 @@ def get_request_api(
     db: Session = Depends(get_db),
     user=Depends(require_any_permission(*PROCUREMENT_READ)),
 ):
+    from app.constants.procurement import REQUEST_TYPE_PURCHASE
+    from app.services.purchase_request_list_scope import user_can_access_purchase_request
+
     req = get_request(db, request_id)
     if not req:
         raise HTTPException(status_code=404, detail="request not found")
+    if getattr(req, "type", None) == REQUEST_TYPE_PURCHASE:
+        if not user_can_access_purchase_request(db, user, request_id):
+            raise HTTPException(status_code=404, detail="request not found")
+    elif getattr(req, "requester_id", None) != user.id:
+        from app.services.workflow_lock import user_may_bypass_workflow_edit_lock
+
+        if not user_may_bypass_workflow_edit_lock(user):
+            raise HTTPException(status_code=404, detail="request not found")
     return req
 
 

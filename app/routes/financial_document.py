@@ -59,7 +59,7 @@ def financial_document_list_capabilities_api(
 def list_financial_documents_api(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE, alias="pageSize"),
-    sort_by: str = Query("id", alias="sortBy"),
+    sort_by: str = Query("created_at", alias="sortBy"),
     sort_order: str = Query("desc", alias="sortOrder"),
     search: str | None = Query(None),
     scope: str | None = Query(None),

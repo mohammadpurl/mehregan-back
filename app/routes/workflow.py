@@ -106,7 +106,14 @@ def get_related_requests_for_instance_api(
     db: Session = Depends(get_db),
     user=Depends(require_any_permission(*WORKFLOW_VIEW)),
 ):
-    del user
+    if not get_workflow_instance_for_viewer(db, viewer=user, instance_id=instance_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=api_error_detail(
+                "WORKFLOW_INSTANCE_NOT_FOUND",
+                "نمونه گردش‌کار یافت نشد یا دسترسی ندارید",
+            ),
+        )
     data = get_related_requests_for_instance(db, instance_id)
     if not data:
         raise HTTPException(
@@ -123,7 +130,23 @@ def get_related_requests_api(
     db: Session = Depends(get_db),
     user=Depends(require_any_permission(*WORKFLOW_VIEW)),
 ):
-    del user
+    from app.models.workflow_instance import WorkflowInstance
+    from app.services.workflow_instance_list import user_can_view_workflow_instance
+
+    inst = (
+        db.query(WorkflowInstance)
+        .filter(
+            WorkflowInstance.ref_type == ref_type.strip(),
+            WorkflowInstance.ref_id == ref_id,
+        )
+        .order_by(WorkflowInstance.id.desc())
+        .first()
+    )
+    if not inst or not user_can_view_workflow_instance(db, user, inst.id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=api_error_detail("NOT_FOUND", "درخواست مرتبط یافت نشد"),
+        )
     data = get_related_requests(db, ref_type=ref_type, ref_id=ref_id)
     if not data:
         raise HTTPException(
@@ -137,9 +160,16 @@ def get_related_requests_api(
 def get_approval_plan(
     instance_id: int,
     db: Session = Depends(get_db),
-    _user=Depends(require_any_permission(*WORKFLOW_VIEW)),
+    user=Depends(require_any_permission(*WORKFLOW_VIEW)),
 ):
-    del _user
+    if not get_workflow_instance_for_viewer(db, viewer=user, instance_id=instance_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=api_error_detail(
+                "WORKFLOW_INSTANCE_NOT_FOUND",
+                "workflow instance not found",
+            ),
+        )
     data = get_instance_approval_plan(db, instance_id)
     if not data:
         raise HTTPException(
@@ -153,9 +183,16 @@ def get_approval_plan(
 def get_approval_history(
     instance_id: int,
     db: Session = Depends(get_db),
-    _user=Depends(require_any_permission(*WORKFLOW_VIEW)),
+    user=Depends(require_any_permission(*WORKFLOW_VIEW)),
 ):
-    del _user
+    if not get_workflow_instance_for_viewer(db, viewer=user, instance_id=instance_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=api_error_detail(
+                "WORKFLOW_INSTANCE_NOT_FOUND",
+                "workflow instance not found",
+            ),
+        )
     data = get_approval_history_for_instance(db, instance_id)
     if not data:
         raise HTTPException(
@@ -219,10 +256,18 @@ def reject(
 def list_step_attachments_api(
     instance_id: int,
     db: Session = Depends(get_db),
-    _user=Depends(require_any_permission(*WORKFLOW_VIEW)),
+    user=Depends(require_any_permission(*WORKFLOW_VIEW)),
 ):
     from app.services.workflow_step_attachment import collect_plan_attachments
 
+    if not get_workflow_instance_for_viewer(db, viewer=user, instance_id=instance_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=api_error_detail(
+                "WORKFLOW_INSTANCE_NOT_FOUND",
+                "workflow instance not found",
+            ),
+        )
     return {"items": collect_plan_attachments(db, instance_id)}
 
 

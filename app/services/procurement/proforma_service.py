@@ -41,12 +41,14 @@ def serialize_proforma(db: Session, row: ProcurementProforma) -> dict:
     supplier = db.get(Supplier, row.supplier_id)
     atts = list_attachments(db, ENTITY_PROCUREMENT_PROFORMA, row.id)
     att = serialize_attachment(atts[0]) if atts else {}
+    amount = float(row.amount)
     return {
         "id": row.id,
         "request_id": row.request_id,
         "supplier_id": row.supplier_id,
         "supplier_name": supplier.name if supplier else None,
-        "amount": float(row.amount),
+        "amount": amount,
+        "total_amount": amount,
         "notes": row.notes,
         "status": row.status,
         "uploaded_by": row.uploaded_by,
@@ -66,9 +68,17 @@ async def create_proforma(
     file: UploadFile,
     notes: str | None = None,
 ) -> dict:
+    from app.services.procurement.purchase_request_service import (
+        sync_purchase_request_status_from_workflow,
+    )
+
+    sync_purchase_request_status_from_workflow(db, request_id)
     req = _require_purchase_request(db, request_id)
     if req.status not in (STATUS_AWAITING_PROFORMA, STATUS_PROFORMA_REVIEW):
-        raise ValueError("در این مرحله امکان ثبت پیش‌فاکتور نیست")
+        raise ValueError(
+            "در این مرحله امکان ثبت پیش‌فاکتور نیست. "
+            "ابتدا مراحل قبلی باید تکمیل شده باشد."
+        )
 
     supplier = db.get(Supplier, supplier_id)
     if not supplier or not supplier.is_active:
@@ -95,6 +105,56 @@ async def create_proforma(
         uploaded_by_id=user_id,
         file=file,
     )
+    db.commit()
+    db.refresh(row)
+    return serialize_proforma(db, row)
+
+
+async def update_draft_proforma(
+    db: Session,
+    *,
+    request_id: int,
+    proforma_id: int,
+    user_id: int,
+    supplier_id: int | None = None,
+    amount: float | None = None,
+    file: UploadFile | None = None,
+    notes: str | None = None,
+) -> dict:
+    """ویرایش پیش‌فاکتور پیش‌نویس: مبلغ کل، تأمین‌کننده، فایل."""
+    req = _require_purchase_request(db, request_id)
+    if req.status not in (STATUS_AWAITING_PROFORMA, STATUS_PROFORMA_REVIEW):
+        raise ValueError("در این مرحله امکان ویرایش پیش‌فاکتور نیست")
+
+    row = db.get(ProcurementProforma, proforma_id)
+    if not row or row.request_id != request_id:
+        raise ValueError("پیش‌فاکتور یافت نشد")
+    if row.status != PROFORMA_STATUS_DRAFT:
+        raise ValueError("فقط پیش‌فاکتور پیش‌نویس قابل ویرایش است")
+
+    if supplier_id is not None:
+        supplier = db.get(Supplier, supplier_id)
+        if not supplier or not supplier.is_active:
+            raise ValueError("تأمین‌کننده یافت نشد یا غیرفعال است")
+        row.supplier_id = supplier_id
+
+    if amount is not None:
+        if amount <= 0:
+            raise ValueError("مبلغ پیش‌فاکتور باید بیشتر از صفر باشد")
+        row.amount = amount
+
+    if notes is not None:
+        row.notes = notes.strip() or None
+
+    if file is not None and getattr(file, "filename", None):
+        await save_entity_attachment(
+            db,
+            entity_type=ENTITY_PROCUREMENT_PROFORMA,
+            entity_id=row.id,
+            uploaded_by_id=user_id,
+            file=file,
+        )
+
     db.commit()
     db.refresh(row)
     return serialize_proforma(db, row)
