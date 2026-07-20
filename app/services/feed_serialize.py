@@ -106,6 +106,7 @@ def serialize_inbox_items(
                     {
                         "workflow_instance_id": extra.get("workflowInstanceId"),
                         "request_type_label": extra.get("requestTypeLabel"),
+                        "request_title": extra.get("requestTitle"),
                         "request_created_at": extra.get("requestCreatedAt"),
                         "request_amount": extra.get("requestAmount"),
                         "requester_name": extra.get("requesterName"),
@@ -157,6 +158,7 @@ def serialize_notification_items(
                     {
                         "workflow_instance_id": extra.get("workflowInstanceId"),
                         "request_type_label": extra.get("requestTypeLabel"),
+                        "request_title": extra.get("requestTitle"),
                         "request_created_at": extra.get("requestCreatedAt"),
                         "request_amount": extra.get("requestAmount"),
                         "requester_name": extra.get("requesterName"),

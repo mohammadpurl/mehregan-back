@@ -203,6 +203,7 @@ def _on_purchase_step_completed(
     payment_comment: str | None = None,
     payment_location: str | None = None,
     check_plan: list | None = None,
+    payer_company_account_id: int | None = None,
 ) -> None:
     if instance.ref_type != WORKFLOW_REF_PURCHASE:
         return
@@ -226,14 +227,10 @@ def _on_purchase_step_completed(
             payment_comment=payment_comment,
             payment_location=payment_location,
             check_plan=check_plan,
+            payer_company_account_id=payer_company_account_id,
         )
         _set_request_status(db, request_id, STATUS_AWAITING_INVOICE)
     elif action == ACTION_UPLOAD_INVOICE:
-        from app.services.procurement.procurement_notifications import (
-            notify_finance_invoice_uploaded,
-        )
-
-        notify_finance_invoice_uploaded(db, request_id)
         _set_request_status(db, request_id, STATUS_AWAITING_PAYMENT_EXECUTION)
     elif action == ACTION_MARK_PAYMENT:
         req = db.get(Request, request_id)
@@ -297,6 +294,7 @@ def advance_workflow_after_step(
     payment_comment: str | None = None,
     payment_location: str | None = None,
     check_plan: list | None = None,
+    payer_company_account_id: int | None = None,
 ) -> None:
     instance = db.get(WorkflowInstance, instance_id)
     if not instance:
@@ -310,6 +308,7 @@ def advance_workflow_after_step(
         payment_comment=payment_comment,
         payment_location=payment_location,
         check_plan=check_plan,
+        payer_company_account_id=payer_company_account_id,
     )
 
     while True:
@@ -348,6 +347,7 @@ def advance_workflow_after_step(
                 payment_comment=payment_comment,
                 payment_location=payment_location,
                 check_plan=check_plan,
+                payer_company_account_id=payer_company_account_id,
             )
             continue
 
@@ -423,6 +423,27 @@ def complete_operational_step(
     db.commit()
 
 
+def _pending_step_has_attachments(db: Session, request_id: int) -> bool:
+    """پیوست‌های کارتابل روی مرحلهٔ جاری (entity=workflow_step)."""
+    from app.models.attachment import Attachment
+
+    inst = get_active_purchase_workflow(db, request_id)
+    if not inst:
+        return False
+    step = _pending_step(db, inst.id)
+    if not step:
+        return False
+    return (
+        db.query(Attachment.id)
+        .filter(
+            Attachment.entity_type == "workflow_step",
+            Attachment.entity_id == int(step.id),
+        )
+        .first()
+        is not None
+    )
+
+
 def _assert_operational_ready(
     db: Session,
     request_id: int,
@@ -455,14 +476,18 @@ def _assert_operational_ready(
         if not list_attachments_serialized(db, ENTITY_PROCUREMENT_INVOICE, request_id):
             raise ValueError("ابتدا فایل فاکتور را بارگذاری کنید")
     elif action == ACTION_MARK_PAYMENT:
-        if not list_attachments_serialized(
-            db, ENTITY_PROCUREMENT_PAYMENT_SLIP, request_id
-        ):
+        has_entity_slips = bool(
+            list_attachments_serialized(db, ENTITY_PROCUREMENT_PAYMENT_SLIP, request_id)
+        )
+        has_step_files = _pending_step_has_attachments(db, request_id)
+        if not has_entity_slips and not has_step_files:
             raise ValueError(
                 "قبل از ثبت سپیدار، تصویر فیش واریزی یا چک‌های پرداخت‌شده را بارگذاری کنید"
             )
     elif action == ACTION_UPLOAD_BOL:
-        if not list_attachments_serialized(db, ENTITY_PROCUREMENT_BOL, request_id):
+        has_bol = bool(list_attachments_serialized(db, ENTITY_PROCUREMENT_BOL, request_id))
+        has_step_files = _pending_step_has_attachments(db, request_id)
+        if not has_bol and not has_step_files:
             raise ValueError("ابتدا فایل بارنامه را بارگذاری کنید")
     elif action == ACTION_CONFIRM_WAREHOUSE_SEPIDAR:
         if not sepidar_confirmed:
@@ -512,7 +537,8 @@ def validate_ceo_payment_terms(
     payment_location: str | None,
     payment_method: str | None,
     check_plan: list | None,
-) -> tuple[str, str, list | None]:
+    payer_company_account_id: int | None = None,
+) -> tuple[str, str, list | None, int | None]:
     loc = (payment_location or "").strip().lower()
     method = (payment_method or "").strip().lower()
     if method in ("نقدی", "cash"):
@@ -528,6 +554,17 @@ def validate_ceo_payment_terms(
         raise ValueError("محل پرداخت باید «بانک» یا «تنخواه» باشد")
     if method not in PURCHASE_PAYMENT_METHODS:
         raise ValueError("روش پرداخت باید «نقدی» یا «چک» باشد")
+
+    payer_id: int | None = None
+    if loc == PAYMENT_LOCATION_BANK:
+        if not payer_company_account_id:
+            raise ValueError("برای پرداخت از بانک، انتخاب حساب بانکی شرکت الزامی است")
+        from app.models.company_bank_account import CompanyBankAccount
+
+        acc = db.get(CompanyBankAccount, int(payer_company_account_id))
+        if not acc:
+            raise ValueError("حساب بانکی شرکت یافت نشد")
+        payer_id = int(acc.id)
 
     normalized_plan: list | None = None
     if method == PAYMENT_METHOD_CHECK:
@@ -565,7 +602,7 @@ def validate_ceo_payment_terms(
             raise ValueError(
                 f"جمع مبالغ چک‌ها ({total}) باید برابر مبلغ پیش‌فاکتور ({expected}) باشد"
             )
-    return loc, method, normalized_plan
+    return loc, method, normalized_plan, payer_id
 
 
 def repair_stuck_purchase_operational_steps(db: Session, request_id: int) -> bool:
@@ -688,6 +725,22 @@ def try_complete_operational_from_inbox(
 
     if action == ACTION_UPLOAD_PROFORMA and not _has_submitted_proforma(db, request_id):
         return False
+    if action == ACTION_UPLOAD_INVOICE:
+        from app.services.attachment_service import (
+            ENTITY_PROCUREMENT_INVOICE,
+            list_attachments_serialized,
+        )
+
+        if not list_attachments_serialized(db, ENTITY_PROCUREMENT_INVOICE, request_id):
+            return False
+    if action == ACTION_UPLOAD_BOL:
+        from app.services.attachment_service import (
+            ENTITY_PROCUREMENT_BOL,
+            list_attachments_serialized,
+        )
+
+        if not list_attachments_serialized(db, ENTITY_PROCUREMENT_BOL, request_id):
+            return False
 
     actor = db.get(User, step.assigned_user_id) if step.assigned_user_id else user
     if not actor:
@@ -709,6 +762,7 @@ def assert_can_approve_pending_step(
     payment_method: str | None = None,
     payment_location: str | None = None,
     check_plan: list | None = None,
+    payer_company_account_id: int | None = None,
     payment_executed: bool = False,
     sepidar_confirmed: bool = False,
 ) -> None:
@@ -727,10 +781,14 @@ def assert_can_approve_pending_step(
                 "صفحه را رفرش کنید."
             )
         raise ValueError(
-            "ثبت و «ارسال برای تأیید» پیش‌فاکتور از صفحه درخواست خرید انجام می‌شود"
+            "ثبت پیش‌فاکتور از همین فرم کارتابل انجام می‌شود"
         )
     if action == ACTION_UPLOAD_INVOICE:
-        raise ValueError("بارگذاری فاکتور از صفحه درخواست خرید انجام می‌شود")
+        if not list_attachments_serialized(db, ENTITY_PROCUREMENT_INVOICE, request_id):
+            raise ValueError(
+                "ابتدا فایل فاکتور را در همین فرم کارتابل بارگذاری کنید"
+            )
+        return
     if action == ACTION_UPLOAD_BOL:
         raise ValueError("بارگذاری بارنامه از صفحه درخواست خرید انجام می‌شود")
     if action == ACTION_MARK_PAYMENT:
@@ -754,4 +812,5 @@ def assert_can_approve_pending_step(
             payment_location=payment_location,
             payment_method=payment_method,
             check_plan=check_plan,
+            payer_company_account_id=payer_company_account_id,
         )

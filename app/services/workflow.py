@@ -160,6 +160,7 @@ def approve_step(
             payment_method=payment_method,
             payment_location=payment_location,
             check_plan=check_plan,
+            payer_company_account_id=payer_company_account_id,
             payment_executed=payment_executed,
             sepidar_confirmed=sepidar_confirmed,
         )
@@ -220,13 +221,15 @@ def approve_step(
         loc = payment_location
         method = payment_method
         plan = check_plan
+        payer_id = payer_company_account_id
         if step_action_for_order(db, instance.ref_type, completed_order) == ACTION_APPROVE_PROFORMA:
-            loc, method, plan = validate_ceo_payment_terms(
+            loc, method, plan, payer_id = validate_ceo_payment_terms(
                 db,
                 int(instance.ref_id),
                 payment_location=payment_location,
                 payment_method=payment_method,
                 check_plan=check_plan,
+                payer_company_account_id=payer_company_account_id,
             )
         advance_workflow_after_step(
             db,
@@ -237,6 +240,7 @@ def approve_step(
             payment_comment=comment,
             payment_location=loc,
             check_plan=plan,
+            payer_company_account_id=payer_id,
         )
         db.refresh(instance)
         notify_submitter_step_decision(

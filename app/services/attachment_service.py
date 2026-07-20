@@ -45,8 +45,10 @@ ENTITY_UPLOAD_DIRS: dict[str, str] = {
 ALLOWED_EXTENSIONS = set(ATTACHMENT_ALLOWED_EXTENSIONS)
 
 
-def attachment_download_path(attachment_id: int) -> str:
+def attachment_download_path(attachment_id: int, *, inline: bool = False) -> str:
     path = f"/attachments/{attachment_id}/download"
+    if inline:
+        path = f"{path}?inline=1"
     if ROOT_PATH:
         return f"{ROOT_PATH}{path}"
     return path
@@ -61,14 +63,26 @@ def _absolute_file_url(public_path: str) -> str | None:
     return f"{base}{public_path}"
 
 
+def _guess_content_type(file_name: str) -> str:
+    import mimetypes
+
+    media_type, _ = mimetypes.guess_type(file_name or "")
+    return media_type or "application/octet-stream"
+
+
 def serialize_attachment(row: Attachment) -> dict:
     download = attachment_download_path(row.id)
+    preview = attachment_download_path(row.id, inline=True)
+    content_type = _guess_content_type(row.file_name)
     return {
         "id": row.id,
         "file_name": row.file_name,
         "url": download,
         "file_url": _absolute_file_url(download),
         "download_url": download,
+        "preview_url": preview,
+        "preview_file_url": _absolute_file_url(preview),
+        "content_type": content_type,
         "uploaded_at": row.created_at,
     }
 

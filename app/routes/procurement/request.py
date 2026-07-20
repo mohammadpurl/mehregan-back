@@ -284,7 +284,6 @@ def list_request_proformas_api(
 )
 async def upload_proforma_api(
     request_id: int,
-    supplier_id: int = Form(..., alias="supplierId", description="شناسه تأمین‌کننده"),
     amount: float | None = Form(
         None, description="مبلغ کل پیش‌فاکتور (یا totalAmount)"
     ),
@@ -292,6 +291,9 @@ async def upload_proforma_api(
         None, alias="totalAmount", description="مبلغ کل پیش‌فاکتور"
     ),
     notes: str | None = Form(None),
+    supplier_id: int | None = Form(
+        None, alias="supplierId", description="اختیاری — شناسه تأمین‌کننده"
+    ),
     file: UploadFile = File(..., description="فایل پیش‌فاکتور (PDF/تصویر)"),
     db: Session = Depends(get_db),
     user=Depends(require_any_permission(*PROCUREMENT_WRITE)),

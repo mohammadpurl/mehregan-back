@@ -11,4 +11,7 @@ class AttachmentOut(BaseModel):
     url: str
     file_url: str | None = Field(None, serialization_alias="fileUrl")
     download_url: str | None = Field(None, serialization_alias="downloadUrl")
+    preview_url: str | None = Field(None, serialization_alias="previewUrl")
+    preview_file_url: str | None = Field(None, serialization_alias="previewFileUrl")
+    content_type: str | None = Field(None, serialization_alias="contentType")
     uploaded_at: datetime | None = Field(None, serialization_alias="uploadedAt")

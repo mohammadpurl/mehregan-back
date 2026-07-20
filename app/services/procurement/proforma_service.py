@@ -38,10 +38,14 @@ def _require_purchase_request(db: Session, request_id: int) -> Request:
 
 
 def serialize_proforma(db: Session, row: ProcurementProforma) -> dict:
-    supplier = db.get(Supplier, row.supplier_id)
+    supplier = db.get(Supplier, row.supplier_id) if row.supplier_id else None
     atts = list_attachments(db, ENTITY_PROCUREMENT_PROFORMA, row.id)
     att = serialize_attachment(atts[0]) if atts else {}
     amount = float(row.amount)
+    download = att.get("download_url") or att.get("url")
+    preview = att.get("preview_url") or (
+        f"{download}?inline=1" if download and "inline=" not in str(download) else download
+    )
     return {
         "id": row.id,
         "request_id": row.request_id,
@@ -53,8 +57,13 @@ def serialize_proforma(db: Session, row: ProcurementProforma) -> dict:
         "status": row.status,
         "uploaded_by": row.uploaded_by,
         "created_at": row.created_at,
+        "attachment_id": att.get("id"),
         "file_name": att.get("file_name"),
-        "download_url": att.get("download_url") or att.get("url"),
+        "content_type": att.get("content_type"),
+        "download_url": download,
+        "preview_url": preview,
+        "preview_file_url": att.get("preview_file_url") or att.get("file_url"),
+        "file_url": att.get("file_url"),
     }
 
 
@@ -63,9 +72,9 @@ async def create_proforma(
     *,
     request_id: int,
     user_id: int,
-    supplier_id: int,
     amount: float,
     file: UploadFile,
+    supplier_id: int | None = None,
     notes: str | None = None,
 ) -> dict:
     from app.services.procurement.purchase_request_service import (
@@ -80,16 +89,18 @@ async def create_proforma(
             "ابتدا مراحل قبلی باید تکمیل شده باشد."
         )
 
-    supplier = db.get(Supplier, supplier_id)
-    if not supplier or not supplier.is_active:
-        raise ValueError("تأمین‌کننده یافت نشد یا غیرفعال است")
+    resolved_supplier_id = int(supplier_id) if supplier_id else None
+    if resolved_supplier_id:
+        supplier = db.get(Supplier, resolved_supplier_id)
+        if not supplier or not supplier.is_active:
+            raise ValueError("تأمین‌کننده یافت نشد یا غیرفعال است")
 
     if amount <= 0:
         raise ValueError("مبلغ پیش‌فاکتور باید بیشتر از صفر باشد")
 
     row = ProcurementProforma(
         request_id=request_id,
-        supplier_id=supplier_id,
+        supplier_id=resolved_supplier_id,
         amount=amount,
         notes=(notes or "").strip() or None,
         status=PROFORMA_STATUS_DRAFT,
@@ -133,10 +144,13 @@ async def update_draft_proforma(
         raise ValueError("فقط پیش‌فاکتور پیش‌نویس قابل ویرایش است")
 
     if supplier_id is not None:
-        supplier = db.get(Supplier, supplier_id)
-        if not supplier or not supplier.is_active:
-            raise ValueError("تأمین‌کننده یافت نشد یا غیرفعال است")
-        row.supplier_id = supplier_id
+        if supplier_id:
+            supplier = db.get(Supplier, supplier_id)
+            if not supplier or not supplier.is_active:
+                raise ValueError("تأمین‌کننده یافت نشد یا غیرفعال است")
+            row.supplier_id = supplier_id
+        else:
+            row.supplier_id = None
 
     if amount is not None:
         if amount <= 0:
@@ -253,6 +267,7 @@ def mark_proforma_workflow_approved(
     payment_comment: str | None = None,
     payment_location: str | None = None,
     check_plan: list | None = None,
+    payer_company_account_id: int | None = None,
 ) -> None:
     req = db.get(Request, request_id)
     if not req:
@@ -279,6 +294,10 @@ def mark_proforma_workflow_approved(
         req.payment_location = (payment_location or "").strip() or None
     if check_plan is not None:
         req.check_plan = check_plan
+    if payer_company_account_id is not None:
+        req.payer_company_account_id = (
+            int(payer_company_account_id) if payer_company_account_id else None
+        )
     req.status = STATUS_AWAITING_INVOICE
     db.flush()
     if row:
@@ -287,7 +306,8 @@ def mark_proforma_workflow_approved(
         )
 
         try:
-            ensure_purchase_order_for_request(db, request_id, row.supplier_id)
+            if row.supplier_id:
+                ensure_purchase_order_for_request(db, request_id, row.supplier_id)
         except ValueError:
             pass
     db.commit()

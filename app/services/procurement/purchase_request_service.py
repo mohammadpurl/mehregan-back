@@ -340,6 +340,7 @@ def serialize_purchase_request(
         "approved_payment_comment": req.approved_payment_comment,
         "payment_location": req.payment_location,
         "check_plan": req.check_plan,
+        "payer_company_account_id": req.payer_company_account_id,
         "invoice_paid_at": req.invoice_paid_at.isoformat() if req.invoice_paid_at else None,
         "invoice_paid_by": req.invoice_paid_by,
         "sepidar_registered_at": (

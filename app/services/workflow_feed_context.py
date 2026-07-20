@@ -83,6 +83,9 @@ def _context_from_instance(
     petties: dict[int, PettyCashRequest] | None = None,
     missions: dict[int, MissionRequest] | None = None,
     financial_docs: dict[int, FinancialDocument] | None = None,
+    purchase_requests: dict[int, Request] | None = None,
+    warehouse_forms: dict[int, WarehouseForm] | None = None,
+    workflow_forms: dict[int, WorkflowForm] | None = None,
     users: dict[int, User] | None = None,
 ) -> WorkflowNotifyContext:
     ref_type = (inst.ref_type or "").strip()
@@ -140,6 +143,33 @@ def _context_from_instance(
                 (users or {}).get(fd.requester_id) if users is not None else None
             )
             entity_title = _row_title(fd)
+    elif ref_type in ("purchase_request", "request", "procurement") and inst.ref_id:
+        req = (purchase_requests or {}).get(int(inst.ref_id))
+        if req:
+            detail_label = base_label
+            request_created_at = req.created_at or request_created_at
+            requester_name = _user_display_name(
+                (users or {}).get(req.requester_id) if users is not None else None
+            )
+            entity_title = _row_title(req)
+    elif ref_type == "warehouse_form" and inst.ref_id:
+        wf = (warehouse_forms or {}).get(int(inst.ref_id))
+        if wf:
+            detail_label = "فرم انبار"
+            request_created_at = wf.created_at or request_created_at
+            requester_name = _user_display_name(
+                (users or {}).get(wf.requester_id) if users is not None else None
+            )
+            entity_title = _row_title(wf)
+    elif ref_type == "workflow_form" and inst.ref_id:
+        form = (workflow_forms or {}).get(int(inst.ref_id))
+        if form:
+            detail_label = "درخواست اداری"
+            request_created_at = form.created_at or request_created_at
+            requester_name = _user_display_name(
+                (users or {}).get(form.requester_id) if users is not None else None
+            )
+            entity_title = _row_title(form)
 
     return WorkflowNotifyContext(
         ref_type=ref_type,
@@ -172,6 +202,9 @@ def batch_load_workflow_contexts(
     petty_ids: list[int] = []
     mission_ids: list[int] = []
     financial_doc_ids: list[int] = []
+    purchase_ids: list[int] = []
+    warehouse_ids: list[int] = []
+    workflow_form_ids: list[int] = []
     for inst in instances:
         rt = (inst.ref_type or "").strip()
         if rt in ("payment_request", "payment_order") and inst.ref_id:
@@ -182,6 +215,12 @@ def batch_load_workflow_contexts(
             mission_ids.append(int(inst.ref_id))
         elif rt == "financial_document" and inst.ref_id:
             financial_doc_ids.append(int(inst.ref_id))
+        elif rt in ("purchase_request", "request", "procurement") and inst.ref_id:
+            purchase_ids.append(int(inst.ref_id))
+        elif rt == "warehouse_form" and inst.ref_id:
+            warehouse_ids.append(int(inst.ref_id))
+        elif rt == "workflow_form" and inst.ref_id:
+            workflow_form_ids.append(int(inst.ref_id))
 
     payments: dict[int, PaymentRequest] = {}
     if payment_ids:
@@ -213,6 +252,25 @@ def batch_load_workflow_contexts(
         ):
             financial_docs[int(row.id)] = row
 
+    purchase_requests: dict[int, Request] = {}
+    if purchase_ids:
+        for row in db.query(Request).filter(Request.id.in_(purchase_ids)).all():
+            purchase_requests[int(row.id)] = row
+
+    warehouse_forms: dict[int, WarehouseForm] = {}
+    if warehouse_ids:
+        for row in (
+            db.query(WarehouseForm).filter(WarehouseForm.id.in_(warehouse_ids)).all()
+        ):
+            warehouse_forms[int(row.id)] = row
+
+    workflow_forms: dict[int, WorkflowForm] = {}
+    if workflow_form_ids:
+        for row in (
+            db.query(WorkflowForm).filter(WorkflowForm.id.in_(workflow_form_ids)).all()
+        ):
+            workflow_forms[int(row.id)] = row
+
     user_ids: set[int] = set()
     for pr in payments.values():
         if pr.requester_id:
@@ -226,6 +284,15 @@ def batch_load_workflow_contexts(
     for fd in financial_docs.values():
         if fd.requester_id:
             user_ids.add(int(fd.requester_id))
+    for req in purchase_requests.values():
+        if req.requester_id:
+            user_ids.add(int(req.requester_id))
+    for wf in warehouse_forms.values():
+        if wf.requester_id:
+            user_ids.add(int(wf.requester_id))
+    for form in workflow_forms.values():
+        if form.requester_id:
+            user_ids.add(int(form.requester_id))
 
     users: dict[int, User] = {}
     if user_ids:
@@ -242,6 +309,9 @@ def batch_load_workflow_contexts(
             petties=petties,
             missions=missions,
             financial_docs=financial_docs,
+            purchase_requests=purchase_requests,
+            warehouse_forms=warehouse_forms,
+            workflow_forms=workflow_forms,
             users=users,
         )
     return out

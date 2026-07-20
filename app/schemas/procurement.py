@@ -238,7 +238,7 @@ class PurchaseOrderOut(BaseModel):
 
 
 class ProformaCreate(BaseModel):
-    supplier_id: int = Field(..., gt=0)
+    supplier_id: int | None = Field(None, gt=0, validation_alias="supplierId")
     amount: float = Field(..., gt=0)
     notes: str | None = Field(None, max_length=2000)
 
@@ -303,7 +303,7 @@ class ProformaOut(BaseModel):
 
     id: int
     request_id: int = Field(serialization_alias="requestId")
-    supplier_id: int = Field(serialization_alias="supplierId")
+    supplier_id: int | None = Field(None, serialization_alias="supplierId")
     supplier_name: str | None = Field(None, serialization_alias="supplierName")
     amount: float = Field(..., description="مبلغ کل پیش‌فاکتور")
     total_amount: float | None = Field(
@@ -313,5 +313,14 @@ class ProformaOut(BaseModel):
     status: str
     uploaded_by: int = Field(serialization_alias="uploadedBy")
     created_at: datetime | None = Field(None, serialization_alias="createdAt")
+    attachment_id: int | None = Field(None, serialization_alias="attachmentId")
     file_name: str | None = Field(None, serialization_alias="fileName")
+    content_type: str | None = Field(None, serialization_alias="contentType")
     download_url: str | None = Field(None, serialization_alias="downloadUrl")
+    preview_url: str | None = Field(
+        None,
+        serialization_alias="previewUrl",
+        description="لینک پیش‌نمایش inline (تصویر/PDF در مرورگر)",
+    )
+    preview_file_url: str | None = Field(None, serialization_alias="previewFileUrl")
+    file_url: str | None = Field(None, serialization_alias="fileUrl")

@@ -76,8 +76,12 @@ def create_procurement_payment(
 
     from app.models.procurement.supplier import Supplier
 
-    supplier = db.get(Supplier, proforma.supplier_id)
-    supplier_label = supplier.name if supplier else f"تأمین‌کننده #{proforma.supplier_id}"
+    supplier = db.get(Supplier, proforma.supplier_id) if proforma.supplier_id else None
+    supplier_label = (
+        supplier.name
+        if supplier
+        else (f"تأمین‌کننده #{proforma.supplier_id}" if proforma.supplier_id else "خرید کالا")
+    )
     reason = (notes or "").strip() or f"پرداخت خرید — درخواست #{request_id} — {supplier_label}"
     amount = float(proforma.amount)
 

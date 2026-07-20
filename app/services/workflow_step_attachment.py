@@ -125,6 +125,7 @@ def collect_plan_attachments(db: Session, instance_id: int) -> list[dict]:
     from app.models.procurement.proforma import ProcurementProforma
     from app.services.attachment_service import (
         ENTITY_PROCUREMENT_INVOICE,
+        ENTITY_PROCUREMENT_PAYMENT_SLIP,
         ENTITY_PROCUREMENT_PROFORMA,
         ENTITY_PROCUREMENT_REQUEST,
         list_attachments_serialized,
@@ -171,6 +172,16 @@ def collect_plan_attachments(db: Session, instance_id: int) -> list[dict]:
             step_order=5,
             workflow_step_id=None,
             scope="invoice",
+        )
+        _append_serialized(
+            out,
+            instance_id=instance_id,
+            rows=list_attachments_serialized(
+                db, ENTITY_PROCUREMENT_PAYMENT_SLIP, request_id
+            ),
+            step_order=6,
+            workflow_step_id=None,
+            scope="payment_slip",
         )
 
     if inst.ref_type == WORKFLOW_REF_PROFORMA and inst.ref_id:

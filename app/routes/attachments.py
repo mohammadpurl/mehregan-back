@@ -20,6 +20,7 @@ router = APIRouter(prefix="/attachments", tags=["Attachments"])
 @router.get("/{attachment_id}/download")
 def download_attachment_api(
     attachment_id: int,
+    inline: bool = False,
     db: Session = Depends(get_db),
     user=Depends(require_any_permission(*ATTACHMENT_DOWNLOAD)),
 ):
@@ -37,4 +38,5 @@ def download_attachment_api(
         path=file_path,
         media_type=media_type or "application/octet-stream",
         filename=att.file_name,
+        content_disposition_type="inline" if inline else "attachment",
     )

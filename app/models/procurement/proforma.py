@@ -11,7 +11,9 @@ class ProcurementProforma(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     request_id: Mapped[int] = mapped_column(ForeignKey("requests.id"), index=True)
-    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    supplier_id: Mapped[int | None] = mapped_column(
+        ForeignKey("suppliers.id"), nullable=True, index=True
+    )
 
     amount: Mapped[float] = mapped_column(Numeric(18, 2))
     currency: Mapped[str] = mapped_column(String(10), default="IRR")

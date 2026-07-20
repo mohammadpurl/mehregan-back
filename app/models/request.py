@@ -31,6 +31,9 @@ class Request(Base):
     approved_payment_comment: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     payment_location: Mapped[str | None] = mapped_column(String(40), nullable=True)
     check_plan: Mapped[list | dict | None] = mapped_column(JSON, nullable=True)
+    payer_company_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("company_bank_accounts.id"), nullable=True
+    )
 
     invoice_paid_at: Mapped[datetime | None] = mapped_column(nullable=True)
     invoice_paid_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)

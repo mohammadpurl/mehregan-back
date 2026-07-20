@@ -704,6 +704,10 @@ def ensure_procurement_schema(engine) -> None:
                 ("title", "VARCHAR(255)"),
                 ("payment_location", "VARCHAR(40)"),
                 ("check_plan", "JSONB"),
+                (
+                    "payer_company_account_id",
+                    "INTEGER REFERENCES company_bank_accounts(id)",
+                ),
                 ("sepidar_registered_at", "TIMESTAMP"),
                 (
                     "sepidar_registered_by",
@@ -798,7 +802,7 @@ def ensure_procurement_schema(engine) -> None:
                     CREATE TABLE procurement_proformas (
                         id SERIAL PRIMARY KEY,
                         request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
-                        supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+                        supplier_id INTEGER REFERENCES suppliers(id),
                         amount NUMERIC(18, 2) NOT NULL,
                         currency VARCHAR(10) NOT NULL DEFAULT 'IRR',
                         notes TEXT,
@@ -821,6 +825,13 @@ def ensure_procurement_schema(engine) -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_procurement_proformas_supplier "
                     "ON procurement_proformas (supplier_id)"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    "ALTER TABLE procurement_proformas "
+                    "ALTER COLUMN supplier_id DROP NOT NULL"
                 )
             )
         if "goods_receipts" not in tables:

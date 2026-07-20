@@ -84,36 +84,21 @@ def notify_after_proforma_ceo_approved(
     payment_method: str | None,
     payment_comment: str | None,
 ) -> None:
+    """اطلاع اختیاری به مالی درباره شرایط پرداخت — کارتابل مرحله بعد جداگانه از workflow می‌آید."""
     method_label = payment_method or "—"
     extra = f"\nتوضیح مدیرعامل: {payment_comment}" if payment_comment else ""
     finance_msg = (
         f"درخواست خرید #{request_id} تأیید شد. پرداخت با روش «{method_label}» انجام خواهد شد.{extra}\n"
         "پس از بارگذاری فاکتور توسط مسئول خرید، فاکتور را بررسی و پرداخت را ثبت کنید."
     )
-    purchase_msg = (
-        f"درخواست خرید #{request_id}: پیش‌فاکتور تأیید شد. "
-        "لطفاً فاکتور رسمی را بارگذاری کنید."
-    )
 
     finance_users = _users_with_role(db, "finance_manager")
-    purchase_users = _users_with_role(db, "purchase_manager")
-    if not purchase_users:
-        purchase_users = _users_with_role(db, "purchase_officer")
-
     _notify_users(
         db,
         user_ids=[u.id for u in finance_users],
         title="آماده پرداخت — روش پرداخت مشخص شد",
         message=finance_msg,
         notif_type="procurement.payment_planned",
-        ref_id=request_id,
-    )
-    _notify_users(
-        db,
-        user_ids=[u.id for u in purchase_users],
-        title="بارگذاری فاکتور",
-        message=purchase_msg,
-        notif_type="procurement.invoice_needed",
         ref_id=request_id,
     )
 

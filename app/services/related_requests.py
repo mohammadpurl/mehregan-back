@@ -159,7 +159,7 @@ def _collect_purchase_request_chain(
             _item_from_workflow(
                 inst,
                 relation="workflow",
-                title=f"درخواست خرید #{request_id}",
+                title=(req.title or "").strip() or f"درخواست خرید #{request_id}",
                 status=req.status,
                 created_at=req.created_at,
             ),
