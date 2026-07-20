@@ -477,6 +477,20 @@ def on_startup():
     ensure_ad_hoc_task_schema(engine)
     ensure_mission_request_schema(engine)
     ensure_postgres_sequences(engine)
+
+    try:
+        from app.core.database import SessionLocal
+        from app.services.sla_policy_service import sync_sla_policies_from_definitions
+
+        _sla_db = SessionLocal()
+        try:
+            n = sync_sla_policies_from_definitions(_sla_db)
+            logger.info("SLA policies synced on startup: %s new", n)
+        finally:
+            _sla_db.close()
+    except Exception:
+        logger.exception("SLA policy sync on startup failed")
+
     logger.info("Startup completed: database tables ensured")
 
     from app.workers.sla_worker import start_worker

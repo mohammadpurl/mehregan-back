@@ -48,6 +48,7 @@ class AdHocTaskStep(Base):
     author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     comment: Mapped[str] = mapped_column(Text)
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     task = relationship("AdHocTask", back_populates="steps")

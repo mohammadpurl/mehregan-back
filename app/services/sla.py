@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 from app.models.sla_record import SLARecord
 from app.models.workflow_instance import WorkflowInstance
 from app.models.workflow_step import WorkflowStep
-from app.services.sla_policy_service import get_sla_policy_for_step
+from app.services.sla_policy_service import (
+    DEFAULT_SLA_MAX_MINUTES,
+    ensure_default_sla_policy,
+    get_sla_policy_for_step,
+)
 
 
 def _current_pending_step(db: Session, instance_id: int) -> WorkflowStep | None:
@@ -28,13 +32,24 @@ def create_sla_for_workflow_step(
     step: WorkflowStep,
     instance: WorkflowInstance,
 ) -> SLARecord | None:
-    """Create SLA deadline for an active workflow step from sla_policies."""
+    """Create SLA deadline for an active workflow step (always has a deadline)."""
     if not is_current_pending_step(db, step):
         return None
 
-    policy = get_sla_policy_for_step(db, instance.ref_type, step.order)
+    ref_type = (instance.ref_type or "workflow").strip()
+    policy = get_sla_policy_for_step(db, ref_type, step.order)
     if not policy:
-        return None
+        policy = ensure_default_sla_policy(
+            db,
+            ref_type=ref_type,
+            step_order=step.order,
+            max_minutes=DEFAULT_SLA_MAX_MINUTES,
+        )
+
+    max_minutes = policy.max_minutes if policy.is_active else DEFAULT_SLA_MAX_MINUTES
+    if not policy.is_active:
+        # سیاست غیرفعال: باز هم مهلت با پیش‌فرض ۲۴ساعته
+        max_minutes = DEFAULT_SLA_MAX_MINUTES
 
     existing = (
         db.query(SLARecord)
@@ -50,8 +65,8 @@ def create_sla_for_workflow_step(
     record = SLARecord(
         step_id=step.id,
         ref_id=instance.id,
-        ref_type=instance.ref_type or "workflow",
-        due_at=datetime.utcnow() + timedelta(minutes=policy.max_minutes),
+        ref_type=ref_type,
+        due_at=datetime.utcnow() + timedelta(minutes=int(max_minutes or DEFAULT_SLA_MAX_MINUTES)),
     )
     db.add(record)
     db.flush()
@@ -88,6 +103,43 @@ def close_sla_for_instance(db: Session, instance_id: int) -> None:
         )
         .update({"is_triggered": True}, synchronize_session=False)
     )
+
+
+def backfill_open_sla_records(db: Session) -> int:
+    """برای مراحل pending جاری بدون sla_record باز، مهلت بساز."""
+    pending = (
+        db.query(WorkflowStep, WorkflowInstance)
+        .join(WorkflowInstance, WorkflowInstance.id == WorkflowStep.instance_id)
+        .filter(
+            WorkflowStep.status == "pending",
+            WorkflowStep.assigned_user_id.isnot(None),
+            WorkflowInstance.status.in_(("pending", "in_progress", "active")),
+        )
+        .order_by(WorkflowStep.id)
+        .all()
+    )
+    created = 0
+    for step, inst in pending:
+        if not is_current_pending_step(db, step):
+            continue
+        existing = (
+            db.query(SLARecord)
+            .filter(
+                SLARecord.step_id == step.id,
+                SLARecord.is_triggered == False,  # noqa: E712
+            )
+            .first()
+        )
+        if existing:
+            continue
+        row = create_sla_for_workflow_step(db, step=step, instance=inst)
+        if row:
+            created += 1
+    if created:
+        db.commit()
+    else:
+        db.commit()
+    return created
 
 
 # Backward-compatible alias (legacy callers)

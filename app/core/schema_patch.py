@@ -958,12 +958,13 @@ def ensure_procurement_schema(engine) -> None:
 
 
 def ensure_ad_hoc_task_schema(engine) -> None:
-    """Add SLA/deadline columns to ad_hoc_tasks if missing."""
+    """Add SLA/deadline columns to ad_hoc_tasks / steps if missing."""
     if engine.dialect.name != "postgresql":
         return
 
     insp = inspect(engine)
-    if "ad_hoc_tasks" not in insp.get_table_names():
+    tables = set(insp.get_table_names())
+    if "ad_hoc_tasks" not in tables:
         return
 
     existing = {c["name"] for c in insp.get_columns("ad_hoc_tasks")}
@@ -984,6 +985,27 @@ def ensure_ad_hoc_task_schema(engine) -> None:
                 )
             )
             logger.info("Added ad_hoc_tasks.sla_notified column")
+        if "ad_hoc_task_steps" in tables:
+            conn.execute(
+                text(
+                    "ALTER TABLE ad_hoc_task_steps "
+                    "ADD COLUMN IF NOT EXISTS due_at TIMESTAMP WITHOUT TIME ZONE"
+                )
+            )
+            # backfill بهترین حدس برای hopهای قدیمی بدون مهلت
+            conn.execute(
+                text(
+                    """
+                    UPDATE ad_hoc_task_steps AS s
+                    SET due_at = t.due_at
+                    FROM ad_hoc_tasks AS t
+                    WHERE s.task_id = t.id
+                      AND s.due_at IS NULL
+                      AND s.assignee_id IS NOT NULL
+                      AND t.due_at IS NOT NULL
+                    """
+                )
+            )
 
 
 def ensure_mission_request_schema(engine) -> None:

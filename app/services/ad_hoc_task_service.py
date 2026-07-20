@@ -188,6 +188,7 @@ def create_ad_hoc_task(db: Session, *, user_id: int, payload: AdHocTaskCreate) -
         author_id=user_id,
         comment=comment,
         assignee_id=payload.assignee_id,
+        due_at=due_at,
     )
     db.add(step)
 
@@ -292,6 +293,7 @@ def get_ad_hoc_task_detail(db: Session, task_id: int, user: User | int) -> dict:
                 "comment": step.comment,
                 "assignee_id": step.assignee_id,
                 "assignee_name": _user_display(step_assignee),
+                "due_at": step.due_at,
                 "created_at": step.created_at,
                 "attachments": list_attachments_serialized(
                     db, ENTITY_AD_HOC_TASK_STEP, step.id
@@ -351,11 +353,15 @@ def add_ad_hoc_task_step(
 
     task.updated_at = datetime.utcnow()
     author = db.get(User, user_id)
+    hop_due = None
+    if assignee_id is not None and payload.due_at is not None:
+        hop_due = _to_utc_naive(payload.due_at)
     step = AdHocTaskStep(
         task_id=task.id,
         author_id=user_id,
         comment=payload.comment.strip(),
         assignee_id=assignee_id,
+        due_at=hop_due,
     )
     db.add(step)
 

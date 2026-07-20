@@ -86,6 +86,8 @@ def _build_summary(items: list[dict]) -> dict:
     late = sum(1 for i in items if i["status"] == "late")
     overdue = sum(1 for i in items if i["status"] == "overdue")
     in_progress = sum(1 for i in items if i["status"] == "in_progress")
+    unknown = sum(1 for i in items if i["status"] == "unknown")
+    without_deadline = sum(1 for i in items if not i.get("due_at"))
     completed = on_time + late
     compliance = round((on_time / completed) * 100, 2) if completed else 0.0
 
@@ -104,6 +106,8 @@ def _build_summary(items: list[dict]) -> dict:
                 "late": 0,
                 "overdue": 0,
                 "in_progress": 0,
+                "unknown": 0,
+                "without_deadline": 0,
                 "duration_minutes_total": 0,
                 "duration_samples": 0,
             },
@@ -112,6 +116,8 @@ def _build_summary(items: list[dict]) -> dict:
         st = item["status"]
         if st in bucket:
             bucket[st] += 1
+        if not item.get("due_at"):
+            bucket["without_deadline"] += 1
         dur = item.get("duration_minutes")
         if dur is not None:
             bucket["duration_minutes_total"] += dur
@@ -140,6 +146,8 @@ def _build_summary(items: list[dict]) -> dict:
         "late": late,
         "overdue_pending": overdue,
         "in_progress": in_progress,
+        "unknown": unknown,
+        "withoutDeadline": without_deadline,
         "compliance_rate_percent": compliance,
         "by_assignee": by_assignee,
     }
@@ -240,14 +248,18 @@ def _ad_hoc_items(
             started_at = step.created_at
             is_last = idx == len(steps) - 1
             if is_last and task.status == STATUS_CLOSED:
-                completed_at = step.created_at
+                # زمان بستن تقریبی: updated_at کار یا created_at hop بعدی وجود ندارد
+                completed_at = task.updated_at or step.created_at
             elif idx + 1 < len(steps):
                 completed_at = steps[idx + 1].created_at
             else:
                 completed_at = None
 
             is_current_open = task.status != STATUS_CLOSED and is_last
-            due_at = task.due_at if is_current_open else None
+            # مهلت hop؛ برای hop جاری باز اگر خالی بود از task.due_at
+            due_at = step.due_at
+            if due_at is None and is_current_open:
+                due_at = task.due_at
 
             event_at = completed_at or due_at or started_at
             if not _in_period(start=period_start, end=period_end, event_at=event_at):
@@ -311,18 +323,26 @@ def get_sla_report(
     kind_norm = (kind or "all").strip().lower()
 
     items: list[dict] = []
-    if kind_norm in ("all", "workflow"):
+    rt = (ref_type or "").strip() or None
+    include_workflow = kind_norm in ("all", "workflow") and (
+        rt is None or rt != "ad_hoc_task"
+    )
+    include_ad_hoc = kind_norm in ("all", "ad_hoc") and (
+        rt is None or rt == "ad_hoc_task"
+    )
+
+    if include_workflow:
         items.extend(
             _workflow_items(
                 db,
                 period_start=period_start,
                 period_end=period_end,
-                ref_type=ref_type,
+                ref_type=None if rt == "ad_hoc_task" else rt,
                 assignee_id=assignee_id,
                 now=now,
             )
         )
-    if kind_norm in ("all", "ad_hoc") and not ref_type:
+    if include_ad_hoc:
         items.extend(
             _ad_hoc_items(
                 db,
