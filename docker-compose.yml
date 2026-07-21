@@ -40,7 +40,7 @@ services:
       retries: 12
 
   backend:
-    build:
+    container_name: mehregan-backend
       context: .
       args:
         PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm}
@@ -86,6 +86,7 @@ services:
       - ./scripts:/app/scripts:ro
 
   frontend:
+    container_name: mehregan-frontend
     build:
       context: ${FRONTEND_CONTEXT:-../Frontend-Next3}
       dockerfile: Dockerfile
