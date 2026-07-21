@@ -41,6 +41,7 @@ services:
 
   backend:
     container_name: mehregan-backend
+    build:
       context: .
       args:
         PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm}
