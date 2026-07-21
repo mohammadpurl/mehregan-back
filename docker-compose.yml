@@ -33,6 +33,11 @@ services:
   rabbitmq:
     image: ${RABBITMQ_IMAGE:-rabbitmq:3.13-management-alpine}
     restart: unless-stopped
+    # guest فقط از localhost مجاز است؛ از کانتینرهای دیگر ACCESS_REFUSED می‌خورد
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-erp_rabbit}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -50,6 +55,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-task_management}
       RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-erp_rabbit}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
       UPLOAD_DIR: /app/data/uploads
       # Swagger off unless ENABLE_API_DOCS=true; compose defaults ENVIRONMENT to production
       ENVIRONMENT: ${ENVIRONMENT:-production}
@@ -78,8 +86,13 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-task_management}
       RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-erp_rabbit}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
       UPLOAD_DIR: /app/data/uploads
     depends_on:
+      rabbitmq:
+        condition: service_healthy
       backend:
         condition: service_started
     volumes:
