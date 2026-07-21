@@ -1,4 +1,5 @@
 import json
+import os
 
 from app.core.rabbitmq import rabbitmq_connection
 from app.gateways.event_gateway import EventGateway
@@ -161,20 +162,47 @@ def callback(ch, method, properties, body):
 # START CONSUMER
 # ==============================
 def start_consumer():
-    connection = rabbitmq_connection()
+    import time
 
-    channel = connection.channel()
+    import pika
 
-    channel.queue_declare(queue="erp_events", durable=True)
+    max_attempts = int(os.getenv("RABBITMQ_CONNECT_RETRIES", "60"))
+    delay_sec = float(os.getenv("RABBITMQ_CONNECT_DELAY", "3"))
+    last_error: Exception | None = None
 
-    channel.basic_consume(
-        queue="erp_events",
-        on_message_callback=callback,
-        auto_ack=False,
-    )
+    for attempt in range(1, max_attempts + 1):
+        try:
+            connection = rabbitmq_connection()
+            channel = connection.channel()
+            channel.queue_declare(queue="erp_events", durable=True)
+            channel.basic_consume(
+                queue="erp_events",
+                on_message_callback=callback,
+                auto_ack=False,
+            )
+            print(
+                f"ERP Consumer Started (Event Gateway Mode) "
+                f"[rabbitmq attempt {attempt}/{max_attempts}]",
+                flush=True,
+            )
+            channel.start_consuming()
+            return
+        except (
+            pika.exceptions.AMQPConnectionError,
+            pika.exceptions.ProbableAuthenticationError,
+            ConnectionError,
+            OSError,
+        ) as exc:
+            last_error = exc
+            print(
+                f"RabbitMQ not ready (attempt {attempt}/{max_attempts}): {exc}",
+                flush=True,
+            )
+            time.sleep(delay_sec)
 
-    print("ERP Consumer Started (Event Gateway Mode)")
-    channel.start_consuming()
+    raise RuntimeError(
+        f"Could not connect to RabbitMQ after {max_attempts} attempts"
+    ) from last_error
 
 
 if __name__ == "__main__":
